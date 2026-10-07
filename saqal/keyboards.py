@@ -22,6 +22,10 @@ MASTER = "mst"
 DAY = "day"
 TIME = "tm"
 BACK = "back"
+MY = "my"
+CANCEL_ASK = "cx"
+CANCEL_YES = "cxy"
+CANCEL_NO = "cxn"
 
 DAY_FMT = "%Y%m%d"
 TIME_FMT = "%Y%m%d%H%M"
@@ -36,8 +40,41 @@ def _back(target: str) -> list[InlineKeyboardButton]:
 
 
 def greeting() -> InlineKeyboardMarkup:
-    # «Мои записи» появится в Ф2.
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_btn(texts.BTN_BOOK, BOOK)], [_btn(texts.BTN_MY, MY)]]
+    )
+
+
+def my_bookings(bookings: Sequence[tuple[int, datetime]]) -> InlineKeyboardMarkup:
+    """Своя кнопка «Отменить» у каждой записи (М1)."""
+    rows = [[_btn(texts.btn_cancel(start), f"{CANCEL_ASK}:{bid}")] for bid, start in bookings]
+    rows.append([_btn(texts.BTN_HOME, HOME)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def no_bookings() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[_btn(texts.BTN_BOOK, BOOK)]])
+
+
+def confirm_cancel(booking_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_btn(texts.BTN_CANCEL_YES, f"{CANCEL_YES}:{booking_id}")],
+            [_btn(texts.BTN_CANCEL_NO, CANCEL_NO)],
+        ]
+    )
+
+
+def after_cancel() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_btn(texts.BTN_BOOK, BOOK)], [_btn(texts.BTN_MY, MY)]]
+    )
+
+
+def cancel_problem() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_btn(texts.BTN_MY, MY)], [_btn(texts.BTN_HOME, HOME)]]
+    )
 
 
 def home() -> InlineKeyboardMarkup:

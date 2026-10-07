@@ -29,6 +29,13 @@ BTN_BACK = "⬅️ Назад"
 BTN_HOME = "🏠 В начало"
 BTN_ANY_MASTER = "💈 Любой мастер"
 BTN_SHARE_PHONE = "📱 Поделиться номером"
+BTN_MY = "📋 Мои записи"
+BTN_CANCEL_YES = "✅ Да, отменить"
+BTN_CANCEL_NO = "↩️ Нет, оставить"
+
+
+def btn_cancel(start: datetime) -> str:
+    return f"❌ Отменить {fmt_date(start.astimezone(TZ).date())}, {fmt_time(start)}"
 
 
 def btn_service(s: Service) -> str:
@@ -93,7 +100,37 @@ USE_BUTTONS = (
 RESTART = "Хорошо, начнём заново 👌"
 
 
-# --- Т1, Т4 ---
+# --- Мои записи и отмена (М1–М4) ---
+
+ALREADY_BOOKED = "✅ Вы уже записаны на это время — подтверждение в чате."
+
+
+def booking_line(service_title: str, master_name: str, start: datetime) -> str:
+    when = f"{fmt_date(start.astimezone(TZ).date())} в {fmt_time(start)}"
+    return f"📅 {when} — «{service_title}», мастер {master_name}"
+
+
+def my_bookings(lines: list[str]) -> str:
+    return "📋 Ваши записи:\n\n" + "\n".join(lines)
+
+
+NO_BOOKINGS = "У вас пока нет предстоящих записей 🙂 Давайте запишемся?"
+
+
+def confirm_cancel(line: str) -> str:
+    return f"Точно отменить запись? 🤔\n\n{line}"
+
+
+def cancelled(line: str) -> str:
+    return f"Запись отменена ✅\n\n{line}\n\nБудем рады видеть вас в другой раз! 💈"
+
+
+CANCEL_NOT_FOUND = "🤔 Такой записи нет. Актуальный список — в «📋 Мои записи»."
+CANCEL_ALREADY = "👌 Эта запись уже отменена."
+CANCEL_STARTED = "⏰ Эта запись уже началась или прошла — отменить её нельзя."
+
+
+# --- Т1, Т4, Т5 ---
 
 
 def confirmation(shop: Shop, name: str, service: Service, master: Master, start: datetime) -> str:
@@ -114,5 +151,16 @@ def admin_new_booking(
     return (
         f"🆕 Новая запись: {name}, {phone}\n"
         f"{service.title}, мастер {master.name}, "
+        f"{fmt_date(start.astimezone(TZ).date())} {fmt_time(start)}"
+    )
+
+
+def admin_cancelled(
+    name: str, phone: str, service_title: str, master_name: str, start: datetime
+) -> str:
+    """Т5."""
+    return (
+        f"❌ Отмена записи: {name}, {phone}\n"
+        f"{service_title}, мастер {master_name}, "
         f"{fmt_date(start.astimezone(TZ).date())} {fmt_time(start)}"
     )

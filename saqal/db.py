@@ -5,6 +5,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from enum import Enum
 
 from . import slots
 from .clock import TZ
@@ -45,6 +46,37 @@ class Booking:
     master_id: str
     service_id: str
     start: datetime
+    status: str = "active"
+
+
+class CancelCheck(Enum):
+    """Можно ли отменить запись (М2, М4, А9)."""
+
+    OK = "ok"
+    NOT_FOUND = "not_found"  # нет такой записи у этого клиента (в том числе чужая)
+    ALREADY_CANCELLED = "already_cancelled"
+    STARTED = "started"  # визит уже начался или прошёл
+
+
+BOOKING_SELECT = (
+    "SELECT b.id, b.user_id, c.name, c.phone, b.master_id, b.service_id, b.start_at, b.status"
+    " FROM bookings b JOIN clients c ON c.user_id = b.user_id"
+)
+
+
+def _booking(row: tuple) -> Booking:
+    bid, user_id, name, phone, master_id, service_id, start_at, status = row
+    return Booking(bid, Client(user_id, name, phone), master_id, service_id, _dt(start_at), status)
+
+
+def _check(booking: Booking | None, now: datetime) -> CancelCheck:
+    if booking is None:
+        return CancelCheck.NOT_FOUND
+    if booking.status != "active":
+        return CancelCheck.ALREADY_CANCELLED
+    if booking.start <= now:
+        return CancelCheck.STARTED
+    return CancelCheck.OK
 
 
 def _ts(dt: datetime) -> int:
@@ -159,3 +191,63 @@ class Database:
             raise
         finally:
             conn.close()
+
+    def upcoming_bookings(self, user_id: int, now: datetime) -> list[Booking]:
+        """М1: будущие активные записи клиента по порядку времени."""
+        with self._session() as conn:
+            rows = conn.execute(
+                f"{BOOKING_SELECT} WHERE b.user_id = ? AND b.status = 'active' AND b.start_at > ?"
+                " ORDER BY b.start_at, b.id",
+                (user_id, _ts(now)),
+            ).fetchall()
+        return [_booking(r) for r in rows]
+
+    def active_booking_at(self, user_id: int, start: datetime) -> Booking | None:
+        """Активная запись клиента на этот старт (повторное нажатие кнопки времени)."""
+        with self._session() as conn:
+            row = conn.execute(
+                f"{BOOKING_SELECT} WHERE b.user_id = ? AND b.status = 'active' AND b.start_at = ?",
+                (user_id, _ts(start)),
+            ).fetchone()
+        return _booking(row) if row else None
+
+    def check_cancel(
+        self, booking_id: int, user_id: int, now: datetime
+    ) -> tuple[CancelCheck, Booking | None]:
+        """Проверка перед подтверждением отмены. Чужая запись — как несуществующая (А9)."""
+        with self._session() as conn:
+            booking = self._user_booking(conn, booking_id, user_id)
+        return _check(booking, now), booking
+
+    def cancel_booking(
+        self, booking_id: int, user_id: int, now: datetime
+    ) -> tuple[CancelCheck, Booking | None]:
+        """М2–М4: проверка и отмена в одной транзакции с блокировкой на запись.
+
+        Отменяет только при CancelCheck.OK; повторный вызов вернёт ALREADY_CANCELLED.
+        """
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            booking = self._user_booking(conn, booking_id, user_id)
+            result = _check(booking, now)
+            if result is CancelCheck.OK:
+                conn.execute(
+                    "UPDATE bookings SET status = 'cancelled' WHERE id = ? AND status = 'active'",
+                    (booking_id,),
+                )
+            conn.execute("COMMIT")
+            return result, booking
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _user_booking(conn: sqlite3.Connection, booking_id: int, user_id: int) -> Booking | None:
+        row = conn.execute(
+            f"{BOOKING_SELECT} WHERE b.id = ? AND b.user_id = ?", (booking_id, user_id)
+        ).fetchone()
+        return _booking(row) if row else None

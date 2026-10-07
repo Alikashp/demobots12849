@@ -45,7 +45,7 @@ async def test_new_client_full_flow_gets_t1_and_admin_gets_t4(tg):
     r = await tg.text(ALICE, "/start")
     [greeting] = sent(r)
     assert "SAQAL" in greeting.text
-    assert buttons(greeting) == [(texts.BTN_BOOK, "book")]
+    assert buttons(greeting) == [(texts.BTN_BOOK, "book"), (texts.BTN_MY, "my")]  # 2.1
 
     r = await tg.press(ALICE, "book")
     [msg] = sent(r)

@@ -4,7 +4,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 
 from .config import Settings, Shop, load_shop
 from .db import Database
@@ -13,7 +13,16 @@ from .handlers import build_routers
 
 def build_dispatcher(shop: Shop, db: Database, settings: Settings) -> Dispatcher:
     # А7: состояние незавершённой записи — только в памяти.
-    dp = Dispatcher(storage=MemoryStorage(), shop=shop, db=db, settings=settings)
+    # Апдейты одного клиента обрабатываются по очереди: двойное нажатие кнопки приходит
+    # двумя апдейтами, и без очереди оба читают одно и то же состояние записи (2.10).
+    # Процесс один (А1), поэтому блокировки в памяти достаточно; база страхует отдельно (А5).
+    dp = Dispatcher(
+        storage=MemoryStorage(),
+        events_isolation=SimpleEventIsolation(),
+        shop=shop,
+        db=db,
+        settings=settings,
+    )
     dp.include_routers(*build_routers())
     return dp
 

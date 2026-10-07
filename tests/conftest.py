@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 from itertools import count
 from typing import Any
@@ -62,6 +63,8 @@ class FakeSession(BaseSession):
         self._ids = count(1000)
 
     async def make_request(self, bot: Bot, method: TelegramMethod, timeout: int | None = None):
+        # Как настоящая сеть: отдаём управление циклу, чтобы параллельные апдейты перемешивались.
+        await asyncio.sleep(0)
         self.requests.append(method)
         if isinstance(method, SendMessage | EditMessageText):
             chat_id = method.chat_id or 0
@@ -125,6 +128,12 @@ class Harness:
         contact = Contact(phone_number=phone, first_name="X", user_id=owner_id)
         return await self._feed(message=self._message(uid, contact=contact, **extra))
 
+    async def together(self, *coros) -> list[TelegramMethod]:
+        """Подать несколько апдейтов параллельно; вернуть все запросы бота за это время."""
+        before = len(self.session.requests)
+        await asyncio.gather(*coros)
+        return self.session.requests[before:]
+
     async def press(self, uid: int, data: str):
         message = self._message(uid, text="…")
         cb = CallbackQuery(
@@ -135,6 +144,17 @@ class Harness:
             message=message,
         )
         return await self._feed(callback_query=cb)
+
+
+async def after_yields(n: int, coro):
+    """Запустить корутину после n переключений цикла — разные порядки гонки."""
+    for _ in range(n):
+        await asyncio.sleep(0)
+    return await coro
+
+
+# Сдвиги между двумя параллельными апдейтами: покрывают все порядки, найденные на Ф1.
+RACE_OFFSETS = [(0, 0), (0, 1), (1, 0), (0, 2), (2, 0), (1, 1), (0, 3), (3, 0), (0, 5), (5, 0)]
 
 
 @pytest.fixture
