@@ -32,6 +32,7 @@ BTN_SHARE_PHONE = "📱 Поделиться номером"
 BTN_MY = "📋 Мои записи"
 BTN_CANCEL_YES = "✅ Да, отменить"
 BTN_CANCEL_NO = "↩️ Нет, оставить"
+BTN_CANCEL_BOOKING = "❌ Отменить запись"
 
 
 def btn_cancel(start: datetime) -> str:
@@ -130,6 +131,14 @@ CANCEL_ALREADY = "👌 Эта запись уже отменена."
 CANCEL_STARTED = "⏰ Эта запись уже началась или прошла — отменить её нельзя."
 
 
+# --- /test_reminder (Н5) ---
+
+TEST_REMINDER_SCHEDULED = "⏰ Готово! Через минуту пришлю тестовое напоминание о ближайшей записи."
+TEST_REMINDER_NO_BOOKINGS = (
+    "🙂 Чтобы проверить напоминание, сначала запишитесь — и сразу пробуйте снова."
+)
+
+
 # --- Т1, Т4, Т5 ---
 
 
@@ -163,4 +172,14 @@ def admin_cancelled(
         f"❌ Отмена записи: {name}, {phone}\n"
         f"{service_title}, мастер {master_name}, "
         f"{fmt_date(start.astimezone(TZ).date())} {fmt_time(start)}"
+    )
+
+
+def reminder(kind: str, name: str, service_title: str, master_name: str, start: datetime) -> str:
+    """Т2 (за 24 часа, «завтра») и Т3 (за 2 часа, «сегодня»). Тестовое напоминание — Т2 (Н5)."""
+    day = "сегодня" if kind == "2h" else "завтра"
+    return (
+        f"💈 {name}, напоминаем: {day} в {fmt_time(start)} вы записаны к мастеру {master_name} "
+        f"на «{service_title}». Если планы изменились, отмените запись кнопкой ниже, "
+        "чтобы освободить время для других."
     )

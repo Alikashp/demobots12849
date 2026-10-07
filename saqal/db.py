@@ -1,4 +1,4 @@
-"""SQLite: клиенты и записи (А2, А3, А5). Время хранится в UTC (секунды эпохи)."""
+"""SQLite: клиенты, записи и напоминания (А2, А3, А5, А6). Время — UTC, секунды эпохи."""
 
 import sqlite3
 from collections.abc import Iterator, Sequence
@@ -29,7 +29,20 @@ CREATE TABLE IF NOT EXISTS bookings (
     created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS bookings_master_start ON bookings (master_id, start_at);
+CREATE TABLE IF NOT EXISTS reminders (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    booking_id   INTEGER NOT NULL REFERENCES bookings(id),
+    kind         TEXT    NOT NULL,                  -- '24h', '2h', 'test'
+    due_at       INTEGER NOT NULL,
+    status       TEXT    NOT NULL DEFAULT 'pending', -- pending, sent, skipped
+    processed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS reminders_pending_due ON reminders (status, due_at);
 """
+
+# Н1: напоминания за 24 часа и за 2 часа до визита.
+REMINDER_OFFSETS = {"24h": timedelta(hours=24), "2h": timedelta(hours=2)}
+TEST_REMINDER_KIND = "test"
 
 
 @dataclass(frozen=True)
@@ -47,6 +60,14 @@ class Booking:
     service_id: str
     start: datetime
     status: str = "active"
+
+
+@dataclass(frozen=True)
+class DueReminder:
+    id: int
+    kind: str
+    due: datetime
+    booking: Booking
 
 
 class CancelCheck(Enum):
@@ -183,8 +204,17 @@ class Database:
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (user_id, master_id, service.id, _ts(start), _ts(end), _ts(now)),
             )
+            booking_id = cur.lastrowid
+            # 3.1, Н2: напоминания создаются в той же транзакции; прошедшие сроки — нет.
+            for kind, offset in REMINDER_OFFSETS.items():
+                due = start - offset
+                if due > now:
+                    conn.execute(
+                        "INSERT INTO reminders (booking_id, kind, due_at) VALUES (?, ?, ?)",
+                        (booking_id, kind, _ts(due)),
+                    )
             conn.execute("COMMIT")
-            return Booking(cur.lastrowid, client, master_id, service.id, start)
+            return Booking(booking_id, client, master_id, service.id, start)
         except BaseException:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
@@ -251,3 +281,56 @@ class Database:
             f"{BOOKING_SELECT} WHERE b.id = ? AND b.user_id = ?", (booking_id, user_id)
         ).fetchone()
         return _booking(row) if row else None
+
+    # --- Напоминания (А6) ---
+
+    def add_test_reminder(self, booking_id: int, due: datetime) -> None:
+        """Н5: отдельная строка; настоящие напоминания записи не трогаются."""
+        with self._session() as conn:
+            conn.execute(
+                "INSERT INTO reminders (booking_id, kind, due_at) VALUES (?, ?, ?)",
+                (booking_id, TEST_REMINDER_KIND, _ts(due)),
+            )
+
+    def claim_due_reminders(self, now: datetime, max_late: timedelta) -> list[DueReminder]:
+        """Выбрать наступившие напоминания и отметить их до отправки (А6, Н3, Н4).
+
+        В одной транзакции с блокировкой на запись: отправляемые получают статус sent,
+        опоздавшие больше max_late и напоминания по неактивным записям — skipped.
+        Отмеченное больше никогда не выбирается: при сбое напоминание теряется, но не дублируется.
+        """
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                "SELECT r.id, r.kind, r.due_at, b.id, b.user_id, c.name, c.phone,"
+                " b.master_id, b.service_id, b.start_at, b.status"
+                " FROM reminders r"
+                " JOIN bookings b ON b.id = r.booking_id"
+                " JOIN clients c ON c.user_id = b.user_id"
+                " WHERE r.status = 'pending' AND r.due_at <= ?"
+                " ORDER BY r.due_at, r.id",
+                (_ts(now),),
+            ).fetchall()
+            claimed, skipped = [], []
+            for rid, kind, due_at, *booking_row in rows:
+                booking = _booking(tuple(booking_row))
+                due = _dt(due_at)
+                if booking.status != "active" or now - due > max_late:
+                    skipped.append(rid)
+                else:
+                    claimed.append(DueReminder(rid, kind, due, booking))
+            for status, ids in (("sent", [r.id for r in claimed]), ("skipped", skipped)):
+                conn.executemany(
+                    "UPDATE reminders SET status = ?, processed_at = ?"
+                    " WHERE id = ? AND status = 'pending'",
+                    [(status, _ts(now), rid) for rid in ids],
+                )
+            conn.execute("COMMIT")
+            return claimed
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.close()

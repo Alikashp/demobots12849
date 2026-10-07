@@ -9,6 +9,7 @@ from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 from .config import Settings, Shop, load_shop
 from .db import Database
 from .handlers import build_routers
+from .reminders import ReminderService
 
 
 def build_dispatcher(shop: Shop, db: Database, settings: Settings) -> Dispatcher:
@@ -24,7 +25,22 @@ def build_dispatcher(shop: Shop, db: Database, settings: Settings) -> Dispatcher
         settings=settings,
     )
     dp.include_routers(*build_routers())
+    dp.startup.register(start_reminders)
+    dp.shutdown.register(stop_reminders)
     return dp
+
+
+async def start_reminders(dispatcher: Dispatcher, bot: Bot, db: Database, shop: Shop) -> None:
+    """3.9: цикл напоминаний живёт ровно столько, сколько бот."""
+    service = ReminderService(db, shop, bot)
+    dispatcher["reminders"] = service
+    service.start()
+
+
+async def stop_reminders(dispatcher: Dispatcher) -> None:
+    service = dispatcher.workflow_data.pop("reminders", None)
+    if service is not None:
+        await service.stop()
 
 
 async def run() -> None:

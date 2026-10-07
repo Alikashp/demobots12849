@@ -6,12 +6,12 @@ from datetime import date, datetime, timedelta
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
-from aiogram.filters import CommandStart, StateFilter
+from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 
-from . import clock, keyboards, slots, texts
+from . import clock, keyboards, reminders, slots, texts
 from .config import Service, Settings, Shop
 from .db import Booking as BookingRow
 from .db import CancelCheck, Database
@@ -470,6 +470,20 @@ async def on_cancel_yes(
         log.warning("admin notification failed: booking=%s error=%s", booking.id, type(e).__name__)
 
 
+# --- /test_reminder (Н5). Команды нет в меню: set_my_commands бот не вызывает ---
+
+
+async def on_test_reminder(message: Message, db: Database) -> None:
+    now = clock.now()
+    upcoming = db.upcoming_bookings(message.from_user.id, now)
+    if not upcoming:
+        await message.answer(texts.TEST_REMINDER_NO_BOOKINGS, reply_markup=keyboards.no_bookings())
+        return
+    db.add_test_reminder(upcoming[0].id, now + reminders.TEST_DELAY)
+    log.info("test reminder scheduled: booking=%s", upcoming[0].id)
+    await message.answer(texts.TEST_REMINDER_SCHEDULED)
+
+
 # --- Прочее ---
 
 
@@ -499,6 +513,7 @@ def build_routers() -> list[Router]:
 
     cb = router.callback_query.register
     router.message.register(on_start, CommandStart())
+    router.message.register(on_test_reminder, Command("test_reminder"))
     cb(on_home, F.data == keyboards.HOME)
     cb(on_home, StateFilter(Booking.service), F.data == f"{back}:{keyboards.HOME}")
     cb(on_book, F.data == keyboards.BOOK)
