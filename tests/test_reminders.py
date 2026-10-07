@@ -397,3 +397,29 @@ async def test_reminders_do_not_log_names_or_phones(tg, db, service, frozen_now,
     assert "reminder" in caplog.text
     assert "Иван" not in caplog.text
     assert PHONE not in caplog.text
+
+
+# --- 4.9 (Н5, редакция 3) ---
+
+
+async def test_test_reminder_for_today_visit_is_t3(tg, db, service, frozen_now, server_in_utc):  # noqa: F811
+    # 9 окт 00:30 по Казани = 8 окт 21:30 UTC: по UTC визит «завтра», по Казани — сегодня.
+    frozen_now(datetime(2026, 10, 9, 0, 30, tzinfo=TZ))
+    await book_new(tg, ALICE, time="202610091000")
+    bid = booking_id(db, ALICE, datetime(2026, 10, 9, 10, 0, tzinfo=TZ))
+    now = clock.now()
+    await tg.text(ALICE, "/test_reminder")
+    frozen_now(now + timedelta(minutes=1))
+    await tick(service)
+    [msg] = [m for m in client_msgs(tg, ALICE) if m.text.startswith("💈")]
+    assert msg.text == T3_IVAN.replace("12:00", "10:00")
+    assert buttons(msg) == [(texts.BTN_CANCEL_BOOKING, f"cx:{bid}")]
+
+
+async def test_test_reminder_for_later_visit_is_t2(tg, db, service, frozen_now):
+    await book_new(tg, ALICE, time="202610131200", day="20261013")  # через 4 дня
+    now = clock.now()
+    await tg.text(ALICE, "/test_reminder")
+    frozen_now(now + timedelta(minutes=1))
+    await tick(service)
+    assert reminders_to(tg, ALICE) == [T2_IVAN]

@@ -38,6 +38,19 @@ CREATE TABLE IF NOT EXISTS reminders (
     processed_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS reminders_pending_due ON reminders (status, due_at);
+CREATE TABLE IF NOT EXISTS users (                -- все, кто нажимал /start (В3)
+    user_id        INTEGER PRIMARY KEY,
+    first_start_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS broadcasts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    text        TEXT    NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'draft',   -- draft, sending, sent, cancelled
+    created_at  INTEGER NOT NULL,
+    finished_at INTEGER,
+    delivered   INTEGER,
+    total       INTEGER
+);
 """
 
 # Н1: напоминания за 24 часа и за 2 часа до визита.
@@ -334,3 +347,71 @@ class Database:
             raise
         finally:
             conn.close()
+
+    # --- Владелец (В3, В4) ---
+
+    def remember_user(self, user_id: int, now: datetime) -> None:
+        """В3: каждый, кто нажал /start в личном чате, — получатель рассылки."""
+        with self._session() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO users (user_id, first_start_at) VALUES (?, ?)",
+                (user_id, _ts(now)),
+            )
+
+    def broadcast_recipients(self) -> list[int]:
+        """Нажимавшие /start и все клиенты из базы, каждый один раз."""
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT user_id FROM users UNION SELECT user_id FROM clients ORDER BY user_id"
+            ).fetchall()
+        return [r[0] for r in rows]
+
+    def day_bookings(self, day_start: datetime, day_end: datetime) -> list[Booking]:
+        """В4: активные записи за день, включая уже прошедшие, по времени."""
+        with self._session() as conn:
+            rows = conn.execute(
+                f"{BOOKING_SELECT} WHERE b.status = 'active' AND b.start_at >= ? AND b.start_at < ?"
+                " ORDER BY b.start_at, b.id",
+                (_ts(day_start), _ts(day_end)),
+            ).fetchall()
+        return [_booking(r) for r in rows]
+
+    def create_broadcast(self, text: str, now: datetime) -> int:
+        with self._session() as conn:
+            cur = conn.execute(
+                "INSERT INTO broadcasts (text, created_at) VALUES (?, ?)", (text, _ts(now))
+            )
+            return cur.lastrowid
+
+    def broadcast(self, broadcast_id: int) -> tuple[str, str] | None:
+        """(текст, статус) или None."""
+        with self._session() as conn:
+            row = conn.execute(
+                "SELECT text, status FROM broadcasts WHERE id = ?", (broadcast_id,)
+            ).fetchone()
+        return (row[0], row[1]) if row else None
+
+    def _move_broadcast(self, broadcast_id: int, new_status: str) -> bool:
+        """Перевести черновик в new_status. True — только у первого вызова (4.7)."""
+        with self._session() as conn:
+            cur = conn.execute(
+                "UPDATE broadcasts SET status = ? WHERE id = ? AND status = 'draft'",
+                (new_status, broadcast_id),
+            )
+            return cur.rowcount == 1
+
+    def start_broadcast(self, broadcast_id: int) -> bool:
+        return self._move_broadcast(broadcast_id, "sending")
+
+    def cancel_broadcast(self, broadcast_id: int) -> bool:
+        return self._move_broadcast(broadcast_id, "cancelled")
+
+    def finish_broadcast(
+        self, broadcast_id: int, delivered: int, total: int, now: datetime
+    ) -> None:
+        with self._session() as conn:
+            conn.execute(
+                "UPDATE broadcasts SET status = 'sent', delivered = ?, total = ?, finished_at = ?"
+                " WHERE id = ?",
+                (delivered, total, _ts(now), broadcast_id),
+            )

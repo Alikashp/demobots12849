@@ -173,7 +173,8 @@ async def finish_booking(
 # --- К1: старт и выход в начало ---
 
 
-async def on_start(message: Message, state: FSMContext, shop: Shop, bot: Bot) -> None:
+async def on_start(message: Message, state: FSMContext, shop: Shop, db: Database, bot: Bot) -> None:
+    db.remember_user(message.from_user.id, clock.now())  # В3: получатель рассылки
     await reset(state, bot, message.chat.id)
     await message.answer(texts.greeting(shop), reply_markup=keyboards.greeting())
 

@@ -6,6 +6,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 
+from .admin import build_admin_router
 from .config import Settings, Shop, load_shop
 from .db import Database
 from .handlers import build_routers
@@ -24,7 +25,8 @@ def build_dispatcher(shop: Shop, db: Database, settings: Settings) -> Dispatcher
         db=db,
         settings=settings,
     )
-    dp.include_routers(*build_routers())
+    # Команды владельца — первыми: в личном чате владельца остальное уходит в сценарий клиента.
+    dp.include_routers(build_admin_router(), *build_routers())
     dp.startup.register(start_reminders)
     dp.shutdown.register(stop_reminders)
     return dp

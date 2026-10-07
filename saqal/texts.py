@@ -139,6 +139,43 @@ TEST_REMINDER_NO_BOOKINGS = (
 )
 
 
+# --- Владелец: /today и /broadcast (В2–В4). Деловой тон, без лишних эмодзи ---
+
+TODAY_NO_BOOKINGS = "записей нет"
+BTN_BROADCAST_SEND = "Отправить"
+BTN_BROADCAST_CANCEL = "Отмена"
+BROADCAST_HINT = (
+    "Напишите текст рассылки в том же сообщении, сразу после команды. Например:\n\n"
+    "/broadcast Завтра работаем до 18:00. Ждём вас!"
+)
+BROADCAST_CANCELLED = "Рассылка отменена, сообщения не отправлялись."
+BROADCAST_ALREADY_SENT = "Эта рассылка уже отправлена."
+BROADCAST_ALREADY_CANCELLED = "Эта рассылка уже отменена."
+BROADCAST_IN_PROGRESS = (
+    "Эта рассылка уже отправляется или была прервана перезапуском бота. Повторно она не отправится."
+)
+BROADCAST_UNKNOWN = "Предпросмотр устарел. Отправьте /broadcast с текстом заново."
+
+
+def today_header(d: date) -> str:
+    return f"Записи на {fmt_date(d)}"
+
+
+def today_line(start: datetime, service_title: str, name: str, phone: str) -> str:
+    return f"{fmt_time(start)} — {service_title} — {name}, {phone}"
+
+
+def broadcast_preview_header(recipients: int) -> str:
+    return (
+        f"Предпросмотр рассылки. Получателей: {recipients}.\n"
+        "Следующее сообщение — текст в том виде, в каком его получат клиенты."
+    )
+
+
+def broadcast_report(delivered: int, total: int) -> str:
+    return f"Рассылка завершена: доставлено {delivered} из {total}."
+
+
 # --- Т1, Т4, Т5 ---
 
 
@@ -176,7 +213,7 @@ def admin_cancelled(
 
 
 def reminder(kind: str, name: str, service_title: str, master_name: str, start: datetime) -> str:
-    """Т2 (за 24 часа, «завтра») и Т3 (за 2 часа, «сегодня»). Тестовое напоминание — Т2 (Н5)."""
+    """Т2 (kind «24h», «завтра») и Т3 (kind «2h», «сегодня»)."""
     day = "сегодня" if kind == "2h" else "завтра"
     return (
         f"💈 {name}, напоминаем: {day} в {fmt_time(start)} вы записаны к мастеру {master_name} "

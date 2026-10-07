@@ -26,6 +26,8 @@ MY = "my"
 CANCEL_ASK = "cx"
 CANCEL_YES = "cxy"
 CANCEL_NO = "cxn"
+BROADCAST_SEND = "bcs"
+BROADCAST_CANCEL = "bcc"
 
 DAY_FMT = "%Y%m%d"
 TIME_FMT = "%Y%m%d%H%M"
@@ -56,6 +58,17 @@ def reminder(booking_id: int) -> InlineKeyboardMarkup:
     """Н1: ведёт на то же подтверждение отмены, что и «Мои записи»."""
     return InlineKeyboardMarkup(
         inline_keyboard=[[_btn(texts.BTN_CANCEL_BOOKING, f"{CANCEL_ASK}:{booking_id}")]]
+    )
+
+
+def broadcast_preview(broadcast_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _btn(texts.BTN_BROADCAST_SEND, f"{BROADCAST_SEND}:{broadcast_id}"),
+                _btn(texts.BTN_BROADCAST_CANCEL, f"{BROADCAST_CANCEL}:{broadcast_id}"),
+            ]
+        ]
     )
 
 

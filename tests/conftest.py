@@ -11,6 +11,7 @@ from aiogram.methods import (
     AnswerCallbackQuery,
     EditMessageReplyMarkup,
     EditMessageText,
+    GetMe,
     SendMessage,
     TelegramMethod,
 )
@@ -31,6 +32,7 @@ from saqal.config import Settings, load_shop
 from saqal.db import Database
 
 ADMIN_CHAT_ID = -100500
+BOT_USERNAME = "saqal_test_bot"
 
 
 @pytest.fixture
@@ -85,6 +87,8 @@ class FakeSession(BaseSession):
                 chat=Chat(id=chat_id, type="private" if chat_id > 0 else "supergroup"),
                 text=method.text,
             )
+        if isinstance(method, GetMe):
+            return User(id=42, is_bot=True, first_name="SAQAL", username=BOT_USERNAME)
         if isinstance(method, EditMessageReplyMarkup):
             return True
         if isinstance(method, AnswerCallbackQuery):
@@ -101,10 +105,10 @@ class FakeSession(BaseSession):
 class Harness:
     """Клиент Telegram для тестов: шлёт апдейты в диспетчер и читает ответы бота."""
 
-    def __init__(self, shop, db) -> None:
+    def __init__(self, shop, db, admin_chat_id: int = ADMIN_CHAT_ID) -> None:
         self.session = FakeSession()
         self.bot = Bot("42:TEST", session=self.session)
-        self.settings = Settings(bot_token="42:TEST", admin_chat_id=ADMIN_CHAT_ID, db_path=db.path)
+        self.settings = Settings(bot_token="42:TEST", admin_chat_id=admin_chat_id, db_path=db.path)
         self.dp = build_dispatcher(shop, db, self.settings)
         self._update_ids = count(1)
         self._msg_ids = count(1)
@@ -118,17 +122,19 @@ class Harness:
         await self.dp.feed_update(self.bot, Update(update_id=next(self._update_ids), **kwargs))
         return self.session.requests[before:]
 
-    def _message(self, uid: int, **kwargs) -> Message:
+    def _message(self, uid: int, chat_id: int | None = None, **kwargs) -> Message:
+        chat_id = uid if chat_id is None else chat_id
         return Message(
             message_id=next(self._msg_ids),
             date=datetime.now(UTC),
-            chat=Chat(id=uid, type="private"),
+            chat=Chat(id=chat_id, type="private" if chat_id > 0 else "supergroup"),
             from_user=self.user(uid),
             **kwargs,
         )
 
-    async def text(self, uid: int, text: str):
-        return await self._feed(message=self._message(uid, text=text))
+    async def text(self, uid: int, text: str, chat_id: int | None = None):
+        """Сообщение от uid; chat_id < 0 — группа, другой положительный — чужой личный чат."""
+        return await self._feed(message=self._message(uid, chat_id, text=text))
 
     async def contact(self, uid: int, phone: str, owner_id: int | None, forwarded: bool = False):
         extra = {}
@@ -145,8 +151,8 @@ class Harness:
         await asyncio.gather(*coros)
         return self.session.requests[before:]
 
-    async def press(self, uid: int, data: str):
-        message = self._message(uid, text="…")
+    async def press(self, uid: int, data: str, chat_id: int | None = None):
+        message = self._message(uid, chat_id, text="…")
         cb = CallbackQuery(
             id=str(next(self._update_ids)),
             from_user=self.user(uid),
