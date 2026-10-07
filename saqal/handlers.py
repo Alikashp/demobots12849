@@ -13,7 +13,8 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKey
 
 from . import clock, keyboards, slots, texts
 from .config import Service, Settings, Shop
-from .db import Database
+from .db import Booking as BookingRow
+from .db import CancelCheck, Database
 
 log = logging.getLogger(__name__)
 
@@ -59,9 +60,9 @@ def chosen_master_ids(shop: Shop, data: dict) -> list[str] | None:
 
 
 async def stale(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
-    """К9: устаревшая кнопка — понятный ответ и выход в начало."""
+    """К9: устаревшая кнопка — понятный ответ и выход в начало (с шага К6 — без клавиатуры)."""
     await callback.answer()
-    await state.clear()
+    await reset(state, bot, callback.from_user.id)
     await bot.send_message(callback.from_user.id, texts.STALE_BUTTON, reply_markup=keyboards.home())
 
 
@@ -343,6 +344,132 @@ async def on_phone_other(message: Message) -> None:
     await message.answer(texts.PHONE_USE_BUTTON)
 
 
+async def on_time_repeat(
+    callback: CallbackQuery, state: FSMContext, db: Database, bot: Bot
+) -> None:
+    """Кнопка времени вне шага К5: повторное нажатие или устаревшая кнопка (2.10)."""
+    start = keyboards.parse_time(callback.data.split(":", 1)[1])
+    data = await state.get_data()
+    if (
+        start is not None
+        and await state.get_state() in (Booking.name.state, Booking.phone.state)
+        and data.get("start") == start.isoformat()
+    ):
+        # То же время уже выбрано, ждём имя или телефон — ничего не меняем.
+        await callback.answer()
+        return
+    if start is not None and db.active_booking_at(callback.from_user.id, start) is not None:
+        # Клиент уже записан на это время этим же нажатием.
+        await callback.answer(texts.ALREADY_BOOKED)
+        return
+    await stale(callback, bot, state)
+
+
+# --- Мои записи и отмена (М1–М4). Не зависят от состояния в памяти (2.8) ---
+
+
+def describe(shop: Shop, booking: BookingRow) -> tuple[str, str]:
+    service = shop.service(booking.service_id)
+    master = shop.master(booking.master_id)
+    return (
+        service.title if service else booking.service_id,
+        master.name if master else booking.master_id,
+    )
+
+
+def booking_line(shop: Shop, booking: BookingRow) -> str:
+    return texts.booking_line(*describe(shop, booking), booking.start)
+
+
+CANCEL_PROBLEMS = {
+    CancelCheck.NOT_FOUND: texts.CANCEL_NOT_FOUND,
+    CancelCheck.ALREADY_CANCELLED: texts.CANCEL_ALREADY,
+    CancelCheck.STARTED: texts.CANCEL_STARTED,
+}
+
+
+def callback_id(callback: CallbackQuery) -> int:
+    return int(callback.data.split(":", 1)[1])
+
+
+async def show_my_bookings(callback: CallbackQuery, shop: Shop, db: Database) -> None:
+    bookings = db.upcoming_bookings(callback.from_user.id, clock.now())
+    if not bookings:
+        await show(callback, callback.message, texts.NO_BOOKINGS, keyboards.no_bookings())
+        return
+    await show(
+        callback,
+        callback.message,
+        texts.my_bookings([booking_line(shop, b) for b in bookings]),
+        keyboards.my_bookings([(b.id, b.start) for b in bookings]),
+    )
+
+
+async def on_my(
+    callback: CallbackQuery, state: FSMContext, shop: Shop, db: Database, bot: Bot
+) -> None:
+    """М1; в любой момент сбрасывает незавершённую запись (2.9)."""
+    await callback.answer()
+    await reset(state, bot, callback.from_user.id)
+    await show_my_bookings(callback, shop, db)
+
+
+async def on_cancel_ask(
+    callback: CallbackQuery, state: FSMContext, shop: Shop, db: Database, bot: Bot
+) -> None:
+    """М2: одно подтверждение с данными записи."""
+    await callback.answer()
+    await reset(state, bot, callback.from_user.id)
+    result, booking = db.check_cancel(callback_id(callback), callback.from_user.id, clock.now())
+    if result is not CancelCheck.OK:
+        await show(callback, callback.message, CANCEL_PROBLEMS[result], keyboards.cancel_problem())
+        return
+    await show(
+        callback,
+        callback.message,
+        texts.confirm_cancel(booking_line(shop, booking)),
+        keyboards.confirm_cancel(booking.id),
+    )
+
+
+async def on_cancel_no(
+    callback: CallbackQuery, state: FSMContext, shop: Shop, db: Database, bot: Bot
+) -> None:
+    """Отказ от отмены ничего не меняет — возвращаем список записей."""
+    await callback.answer()
+    await reset(state, bot, callback.from_user.id)
+    await show_my_bookings(callback, shop, db)
+
+
+async def on_cancel_yes(
+    callback: CallbackQuery,
+    state: FSMContext,
+    shop: Shop,
+    db: Database,
+    bot: Bot,
+    settings: Settings,
+) -> None:
+    """М2–М4: отмена; повтор и опоздание — понятный ответ без Т5."""
+    await callback.answer()
+    await reset(state, bot, callback.from_user.id)
+    result, booking = db.cancel_booking(callback_id(callback), callback.from_user.id, clock.now())
+    if result is not CancelCheck.OK:
+        await show(callback, callback.message, CANCEL_PROBLEMS[result], keyboards.cancel_problem())
+        return
+    log.info("booking %s cancelled: user=%s", booking.id, callback.from_user.id)
+    line = booking_line(shop, booking)
+    await show(callback, callback.message, texts.cancelled(line), keyboards.after_cancel())
+    try:
+        await bot.send_message(
+            settings.admin_chat_id,
+            texts.admin_cancelled(
+                booking.client.name, booking.client.phone, *describe(shop, booking), booking.start
+            ),
+        )
+    except TelegramAPIError as e:
+        log.warning("admin notification failed: booking=%s error=%s", booking.id, type(e).__name__)
+
+
 # --- Прочее ---
 
 
@@ -382,6 +509,11 @@ def build_routers() -> list[Router]:
     cb(on_back_to_day, StateFilter(Booking.time), F.data == f"{back}:{keyboards.DAY}")
     cb(on_day, StateFilter(Booking.day), F.data.startswith(f"{keyboards.DAY}:"))
     cb(on_time, StateFilter(Booking.time), F.data.startswith(f"{keyboards.TIME}:"))
+    cb(on_time_repeat, F.data.startswith(f"{keyboards.TIME}:"))
+    cb(on_my, F.data == keyboards.MY)
+    cb(on_cancel_ask, F.data.regexp(rf"^{keyboards.CANCEL_ASK}:\d{{1,18}}$"))
+    cb(on_cancel_yes, F.data.regexp(rf"^{keyboards.CANCEL_YES}:\d{{1,18}}$"))
+    cb(on_cancel_no, F.data == keyboards.CANCEL_NO)
     router.message.register(on_name, StateFilter(Booking.name))
     router.message.register(on_contact, StateFilter(Booking.phone), F.contact)
     router.message.register(on_phone_other, StateFilter(Booking.phone))
