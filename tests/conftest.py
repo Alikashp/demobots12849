@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime
 from itertools import count
 from typing import Any
@@ -60,12 +61,22 @@ class FakeSession(BaseSession):
     def __init__(self) -> None:
         super().__init__()
         self.requests: list[TelegramMethod] = []
+        self.times: list[datetime] = []  # подменённое время каждого запроса
         self._ids = count(1000)
+        # Сбои по чатам: chat_id -> фабрика исключения; чаты, где запрос зависает навсегда.
+        self.fail_for: dict[int, Callable[[TelegramMethod], Exception]] = {}
+        self.hang_for: set[int] = set()
 
     async def make_request(self, bot: Bot, method: TelegramMethod, timeout: int | None = None):
         # Как настоящая сеть: отдаём управление циклу, чтобы параллельные апдейты перемешивались.
         await asyncio.sleep(0)
+        chat_id = getattr(method, "chat_id", None)
+        if chat_id in self.hang_for:
+            await asyncio.Event().wait()
+        if chat_id in self.fail_for:
+            raise self.fail_for[chat_id](method)
         self.requests.append(method)
+        self.times.append(clock.now())
         if isinstance(method, SendMessage | EditMessageText):
             chat_id = method.chat_id or 0
             return Message(

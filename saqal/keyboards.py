@@ -52,6 +52,13 @@ def my_bookings(bookings: Sequence[tuple[int, datetime]]) -> InlineKeyboardMarku
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def reminder(booking_id: int) -> InlineKeyboardMarkup:
+    """Н1: ведёт на то же подтверждение отмены, что и «Мои записи»."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_btn(texts.BTN_CANCEL_BOOKING, f"{CANCEL_ASK}:{booking_id}")]]
+    )
+
+
 def no_bookings() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[_btn(texts.BTN_BOOK, BOOK)]])
 
