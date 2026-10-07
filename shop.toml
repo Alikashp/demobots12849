@@ -1,0 +1,65 @@
+# Данные барбершопа (§2 требований). Меняются здесь, без правки кода.
+# Порядок мастеров важен: при равной загрузке «Любой мастер» выбирает первого (С4).
+
+name = "SAQAL"
+kind = "барбершоп"
+address = "Куюки, Казань"
+
+open = "10:00"
+close = "21:00"
+slot_step_minutes = 30
+days_ahead = 7
+
+[[masters]]
+id = "umar"
+name = "Умар"
+
+[[masters]]
+id = "barber2"
+name = "Барбер 2"
+
+[[masters]]
+id = "barber3"
+name = "Барбер 3"
+
+[[services]]
+id = "men"
+title = "Мужская стрижка"
+minutes = 60
+price = "1 400 ₽"
+
+[[services]]
+id = "clipper"
+title = "Стрижка машинкой"
+minutes = 30
+price = "800 ₽"
+
+[[services]]
+id = "kids"
+title = "Детская до 12 лет"
+minutes = 45
+price = "1 000 ₽"
+
+[[services]]
+id = "beard"
+title = "Моделирование бороды"
+minutes = 30
+price = "1 000 ₽"
+
+[[services]]
+id = "cut_beard"
+title = "Стрижка + борода"
+minutes = 90
+price = "2 000 ₽"
+
+[[services]]
+id = "dad_son"
+title = "Папа + сын"
+minutes = 90
+price = "2 000 ₽"
+
+[[services]]
+id = "grey"
+title = "Камуфляж седины"
+minutes = 30
+price = "от 700 ₽"

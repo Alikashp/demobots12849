@@ -1,0 +1,11 @@
+# Окружение и секреты (Д7)
+.env
+.venv/
+# База (А2) — только на томе, не в репозитории
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+__pycache__/
+.pytest_cache/
+.ruff_cache/

@@ -1,0 +1,27 @@
+[project]
+name = "saqal-bot"
+version = "0.1.0"
+description = "SAQAL — демо-бот записи в барбершоп"
+requires-python = ">=3.12"
+dependencies = [
+    "aiogram>=3.31,<4",
+    "tzdata",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
