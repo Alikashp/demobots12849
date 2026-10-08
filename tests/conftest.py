@@ -11,13 +11,16 @@ from aiogram.methods import (
     AnswerCallbackQuery,
     EditMessageReplyMarkup,
     EditMessageText,
+    GetChat,
     GetMe,
     SendMessage,
     TelegramMethod,
 )
 from aiogram.types import (
+    AcceptedGiftTypes,
     CallbackQuery,
     Chat,
+    ChatFullInfo,
     Contact,
     Message,
     MessageOriginUser,
@@ -86,6 +89,20 @@ class FakeSession(BaseSession):
                 date=datetime.now(UTC),
                 chat=Chat(id=chat_id, type="private" if chat_id > 0 else "supergroup"),
                 text=method.text,
+            )
+        if isinstance(method, GetChat):
+            return ChatFullInfo(
+                id=method.chat_id,
+                type="private" if method.chat_id > 0 else "supergroup",
+                accent_color_id=0,
+                max_reaction_count=0,
+                accepted_gift_types=AcceptedGiftTypes(
+                    unlimited_gifts=False,
+                    limited_gifts=False,
+                    unique_gifts=False,
+                    premium_subscription=False,
+                    gifts_from_channels=False,
+                ),
             )
         if isinstance(method, GetMe):
             return User(id=42, is_bot=True, first_name="SAQAL", username=BOT_USERNAME)
