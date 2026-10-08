@@ -9,13 +9,14 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from aiogram import Bot
 
 from . import clock, keyboards, texts
+from .clock import TZ
 from .config import Shop
-from .db import Database, DueReminder
+from .db import TEST_REMINDER_KIND, Database, DueReminder
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +24,14 @@ INTERVAL = timedelta(seconds=5)  # 3.4: отправка не позже чем 
 MAX_LATE = timedelta(minutes=10)  # Н3
 SEND_TIMEOUT = timedelta(seconds=30)
 TEST_DELAY = timedelta(minutes=1)  # Н5
+
+
+def text_kind(reminder: DueReminder, now: datetime) -> str:
+    """Н5 (ред. 3): тестовое напоминание — Т3, если визит сегодня по Казани, иначе Т2."""
+    if reminder.kind != TEST_REMINDER_KIND:
+        return reminder.kind
+    same_day = reminder.booking.start.astimezone(TZ).date() == now.astimezone(TZ).date()
+    return "2h" if same_day else "24h"
 
 
 class ReminderService:
@@ -61,7 +70,9 @@ class ReminderService:
         try:
             service = self.shop.service(b.service_id)
             master = self.shop.master(b.master_id)
-            text = texts.reminder(reminder.kind, b.client.name, service.title, master.name, b.start)
+            text = texts.reminder(
+                text_kind(reminder, clock.now()), b.client.name, service.title, master.name, b.start
+            )
             async with asyncio.timeout(SEND_TIMEOUT.total_seconds()):
                 await self.bot.send_message(
                     b.client.user_id, text, reply_markup=keyboards.reminder(b.id)
