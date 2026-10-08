@@ -11,6 +11,7 @@ from .config import Settings, Shop, load_shop
 from .db import Database
 from .handlers import build_routers
 from .reminders import ReminderService
+from .startup import StartupError, check_admin_chat, check_storage, ensure_db_dir
 
 
 def build_dispatcher(shop: Shop, db: Database, settings: Settings) -> Dispatcher:
@@ -27,9 +28,15 @@ def build_dispatcher(shop: Shop, db: Database, settings: Settings) -> Dispatcher
     )
     # Команды владельца — первыми: в личном чате владельца остальное уходит в сценарий клиента.
     dp.include_routers(build_admin_router(), *build_routers())
+    dp.startup.register(check_admin_chat_on_start)
     dp.startup.register(start_reminders)
     dp.shutdown.register(stop_reminders)
     return dp
+
+
+async def check_admin_chat_on_start(bot: Bot, settings: Settings) -> None:
+    """5.4: недоступный чат администратора не мешает запуску."""
+    await check_admin_chat(bot, settings.admin_chat_id)
 
 
 async def start_reminders(dispatcher: Dispatcher, bot: Bot, db: Database, shop: Shop) -> None:
@@ -51,6 +58,13 @@ async def run() -> None:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    log = logging.getLogger("saqal")
+    try:
+        check_storage(settings.db_path)  # 5.2
+    except StartupError as e:
+        log.error("Бот не запущен: %s", e)
+        raise SystemExit(1) from None
+    ensure_db_dir(settings.db_path)  # 5.3
     dp = build_dispatcher(load_shop(), Database(settings.db_path), settings)
     bot = Bot(settings.bot_token)
     await bot.delete_webhook(drop_pending_updates=False)
