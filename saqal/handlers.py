@@ -155,9 +155,12 @@ async def finish_booking(
     await state.clear()
     master = shop.master(booking.master_id)
     log.info("booking %s created: user=%s master=%s", booking.id, user_id, booking.master_id)
+    if remove_reply_keyboard:
+        # Одно сообщение не может и убрать кнопку «Поделиться номером», и нести inline-кнопки.
+        await msg.answer(texts.PHONE_RECEIVED, reply_markup=kb_remove)
     await msg.answer(
         texts.confirmation(shop, booking.client.name, service, master, booking.start),
-        reply_markup=kb_remove,
+        reply_markup=keyboards.after_booking(),
     )
     try:
         await bot.send_message(

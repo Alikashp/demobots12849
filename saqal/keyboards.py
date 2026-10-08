@@ -85,6 +85,13 @@ def confirm_cancel(booking_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def after_booking() -> InlineKeyboardMarkup:
+    """Под Т1: записаться ещё раз или посмотреть свои записи."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_btn(texts.BTN_BOOK, BOOK)], [_btn(texts.BTN_MY, MY)]]
+    )
+
+
 def after_cancel() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[_btn(texts.BTN_BOOK, BOOK)], [_btn(texts.BTN_MY, MY)]]

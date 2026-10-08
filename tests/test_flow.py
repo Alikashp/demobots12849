@@ -20,6 +20,8 @@ T1_IVAN = (
     "📍 Куюки, Казань\n"
     "Ждём вас!"
 )
+# Кнопки под Т1: записаться ещё раз или открыть свои записи.
+AFTER_BOOKING = [(texts.BTN_BOOK, "book"), (texts.BTN_MY, "my")]
 T4_IVAN = "🆕 Новая запись: Иван, +79001234567\nМужская стрижка, мастер Умар, 9 октября (пт) 12:00"
 
 
@@ -78,7 +80,8 @@ async def test_new_client_full_flow_gets_t1_and_admin_gets_t4(tg):
     assert msg.reply_markup.keyboard[0][0].request_contact is True
 
     r = await tg.contact(ALICE, PHONE, owner_id=ALICE)
-    assert texts_of(r, ALICE) == [T1_IVAN]
+    assert texts_of(r, ALICE) == [texts.PHONE_RECEIVED, T1_IVAN]
+    assert buttons(sent(r, ALICE)[-1]) == AFTER_BOOKING
     assert texts_of(r, ADMIN_CHAT_ID) == [T4_IVAN]
 
 
@@ -91,6 +94,7 @@ async def test_returning_client_books_right_after_time(tg):
     r = await tg.press(ALICE, "tm:202610091500")
     t1 = T1_IVAN.replace("в 12:00", "в 15:00")
     assert texts_of(r, ALICE) == [t1]
+    assert buttons(sent(r, ALICE)[-1]) == AFTER_BOOKING
     assert texts.ASK_NAME not in texts_of(r)
     assert not any(isinstance(m.reply_markup, ReplyKeyboardMarkup) for m in sent(r))
     assert texts_of(r, ADMIN_CHAT_ID) == [T4_IVAN.replace(" 12:00", " 15:00")]
@@ -119,9 +123,11 @@ async def test_phone_step_accepts_only_own_contact_via_button(tg, db):
     assert db.get_client(ALICE) is None
 
     r = await tg.contact(ALICE, PHONE, owner_id=ALICE)
-    [t1] = sent(r, ALICE)
+    received, t1 = sent(r, ALICE)
+    assert received.text == texts.PHONE_RECEIVED
+    assert isinstance(received.reply_markup, ReplyKeyboardRemove)  # клавиатура убрана
     assert t1.text == T1_IVAN
-    assert isinstance(t1.reply_markup, ReplyKeyboardRemove)
+    assert buttons(t1) == AFTER_BOOKING
     assert db.get_client(ALICE).phone == "+79001234567"
 
 
@@ -143,7 +149,7 @@ async def test_any_master_assigned_and_shown_in_t1(tg):
     await tg.text(ALICE, "Иван")
     r = await tg.contact(ALICE, PHONE, owner_id=ALICE)
     # Умар загружен (60 мин), Барбер 2 и Барбер 3 свободны — первый по конфигу.
-    assert "к мастеру Барбер 2\n" in texts_of(r, ALICE)[0]
+    assert "к мастеру Барбер 2\n" in texts_of(r, ALICE)[-1]
 
 
 # --- 1.6 через бота ---

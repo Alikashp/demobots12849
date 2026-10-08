@@ -50,7 +50,7 @@ async def test_parallel_time_press_new_client(tg, db, offsets):
     assert texts_of(r, ALICE) == [texts.ASK_NAME]
     await tg.text(ALICE, "Иван")
     r = await tg.contact(ALICE, PHONE, owner_id=ALICE)
-    assert texts_of(r, ALICE) == [T1_IVAN]
+    assert texts_of(r, ALICE) == [texts.PHONE_RECEIVED, T1_IVAN]
     assert texts_of(r, ADMIN_CHAT_ID) == [T4_IVAN]
     assert len(db.upcoming_bookings(ALICE, DAY_START)) == 1
 
@@ -72,4 +72,4 @@ async def test_sequential_repeat_time_press_during_name_and_phone(tg, db):
     await tg.text(ALICE, "Иван")
     assert sent(await tg.press(ALICE, "tm:202610091200")) == []  # шаг телефона не сброшен
     r = await tg.contact(ALICE, PHONE, owner_id=ALICE)
-    assert texts_of(r, ALICE) == [T1_IVAN]
+    assert texts_of(r, ALICE) == [texts.PHONE_RECEIVED, T1_IVAN]

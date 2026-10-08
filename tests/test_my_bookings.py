@@ -121,7 +121,7 @@ async def test_cancelled_slot_is_free_again_for_same_master(tg, db):
     await tg.press(BOB, "tm:202610091200")
     await tg.text(BOB, "Пётр")
     r = await tg.contact(BOB, "79005550000", owner_id=BOB)
-    assert "к мастеру Умар\n⌚ 9 октября (пт) в 12:00" in texts_of(r, BOB)[0]
+    assert "к мастеру Умар\n⌚ 9 октября (пт) в 12:00" in texts_of(r, BOB)[-1]
 
 
 # --- 2.5 ---
