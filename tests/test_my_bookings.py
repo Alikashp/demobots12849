@@ -4,7 +4,6 @@ import sqlite3
 from datetime import datetime
 
 import pytest
-from aiogram.types import ReplyKeyboardRemove
 
 from saqal import texts
 from saqal.clock import TZ
@@ -14,6 +13,7 @@ from tests.conftest import (
     Harness,
     after_yields,
     buttons,
+    is_main_menu,
     sent,
     texts_of,
 )
@@ -47,7 +47,7 @@ async def book_more(tg, uid, time, service="men", master="umar", day="20261009")
 
 async def test_greeting_has_book_and_my_buttons(tg):
     [msg] = sent(await tg.text(ALICE, "/start"))
-    assert buttons(msg) == [(texts.BTN_BOOK, "book"), (texts.BTN_MY, "my")]
+    assert is_main_menu(msg.reply_markup)  # «Записаться на услугу», «Мои записи», «Контакты»
 
 
 # --- 2.2 ---
@@ -224,7 +224,7 @@ async def test_my_bookings_resets_unfinished_booking_and_removes_phone_keyboard(
     await reach_phone_step(tg, ALICE)
     msgs = sent(await tg.press(ALICE, "my"))
     assert msgs[0].text == texts.RESTART
-    assert isinstance(msgs[0].reply_markup, ReplyKeyboardRemove)
+    assert is_main_menu(msgs[0].reply_markup)
     assert msgs[1].text == texts.NO_BOOKINGS
     # Запись сброшена: номер больше не ждём.
     assert texts_of(await tg.contact(ALICE, PHONE, owner_id=ALICE)) == [texts.UNKNOWN_MESSAGE]
@@ -254,5 +254,5 @@ async def test_any_exit_from_phone_step_removes_keyboard(tg, exit_action):
     await reach_phone_step(tg, ALICE)
     kind, value = exit_action
     r = await (tg.text(ALICE, value) if kind == "text" else tg.press(ALICE, value))
-    removed = [m for m in sent(r) if isinstance(m.reply_markup, ReplyKeyboardRemove)]
+    removed = [m for m in sent(r) if is_main_menu(m.reply_markup)]
     assert len(removed) == 1, exit_action

@@ -23,6 +23,7 @@ DAY = "day"
 TIME = "tm"
 BACK = "back"
 MY = "my"
+CONTACTS = "contacts"
 CANCEL_ASK = "cx"
 CANCEL_YES = "cxy"
 CANCEL_NO = "cxn"
@@ -41,9 +42,26 @@ def _back(target: str) -> list[InlineKeyboardButton]:
     return [_btn(texts.BTN_BACK, f"{BACK}:{target}")]
 
 
+def main_menu() -> ReplyKeyboardMarkup:
+    """Постоянное меню внизу экрана (П6). Нажатия приходят обычным текстом."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=texts.BTN_MENU_BOOK)],
+            [KeyboardButton(text=texts.BTN_MY), KeyboardButton(text=texts.BTN_CONTACTS)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+    )
+
+
 def greeting() -> InlineKeyboardMarkup:
+    """То же меню inline: «В начало» и ответ на текст вне команд (К11)."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[[_btn(texts.BTN_BOOK, BOOK)], [_btn(texts.BTN_MY, MY)]]
+        inline_keyboard=[
+            [_btn(texts.BTN_MENU_BOOK, BOOK)],
+            [_btn(texts.BTN_MY, MY)],
+            [_btn(texts.BTN_CONTACTS, CONTACTS)],
+        ]
     )
 
 

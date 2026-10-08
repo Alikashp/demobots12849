@@ -9,7 +9,7 @@ from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from . import clock, keyboards, reminders, slots, texts
 from .config import Service, Settings, Shop
@@ -66,11 +66,11 @@ async def stale(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
     await bot.send_message(callback.from_user.id, texts.STALE_BUTTON, reply_markup=keyboards.home())
 
 
-async def reset(state: FSMContext, bot: Bot, chat_id: int) -> None:
+async def reset(state: FSMContext, bot: Bot, chat_id: int, *, restore_menu: bool = True) -> None:
     """Сбросить незавершённую запись (К1)."""
-    if await state.get_state() == Booking.phone.state:
-        # Запись бросили на шаге К6 — убираем кнопку «Поделиться номером».
-        await bot.send_message(chat_id, texts.RESTART, reply_markup=ReplyKeyboardRemove())
+    if restore_menu and await state.get_state() == Booking.phone.state:
+        # Запись бросили на шаге К6 — вместо кнопки «Поделиться номером» снова меню.
+        await bot.send_message(chat_id, texts.RESTART, reply_markup=keyboards.main_menu())
     await state.clear()
 
 
@@ -135,7 +135,8 @@ async def finish_booking(
     service, master_ids = chosen_service(shop, data), chosen_master_ids(shop, data)
     start = datetime.fromisoformat(data["start"])
     new_client = (data["name"], data["phone"]) if "phone" in data else None
-    kb_remove = ReplyKeyboardRemove() if remove_reply_keyboard else None
+    # После шага К6 вместо кнопки «Поделиться номером» возвращаем постоянное меню.
+    kb_remove = keyboards.main_menu() if remove_reply_keyboard else None
 
     booking = db.create_booking(
         shop=shop,
@@ -156,7 +157,7 @@ async def finish_booking(
     master = shop.master(booking.master_id)
     log.info("booking %s created: user=%s master=%s", booking.id, user_id, booking.master_id)
     if remove_reply_keyboard:
-        # Одно сообщение не может и убрать кнопку «Поделиться номером», и нести inline-кнопки.
+        # Одно сообщение не может и сменить клавиатуру внизу, и нести inline-кнопки.
         await msg.answer(texts.PHONE_RECEIVED, reply_markup=kb_remove)
     await msg.answer(
         texts.confirmation(shop, booking.client.name, service, master, booking.start),
@@ -178,8 +179,9 @@ async def finish_booking(
 
 async def on_start(message: Message, state: FSMContext, shop: Shop, db: Database, bot: Bot) -> None:
     db.remember_user(message.from_user.id, clock.now())  # В3: получатель рассылки
-    await reset(state, bot, message.chat.id)
-    await message.answer(texts.greeting(shop), reply_markup=keyboards.greeting())
+    await reset(state, bot, message.chat.id, restore_menu=False)
+    # Приветствие ставит постоянное меню внизу экрана (К10), в том числе вместо кнопки номера.
+    await message.answer(texts.greeting(shop), reply_markup=keyboards.main_menu())
 
 
 async def on_home(callback: CallbackQuery, state: FSMContext, shop: Shop, bot: Bot) -> None:
@@ -396,14 +398,16 @@ def callback_id(callback: CallbackQuery) -> int:
     return int(callback.data.split(":", 1)[1])
 
 
-async def show_my_bookings(callback: CallbackQuery, shop: Shop, db: Database) -> None:
-    bookings = db.upcoming_bookings(callback.from_user.id, clock.now())
+async def show_my_bookings(
+    callback: CallbackQuery | None, msg: Message, user_id: int, shop: Shop, db: Database
+) -> None:
+    bookings = db.upcoming_bookings(user_id, clock.now())
     if not bookings:
-        await show(callback, callback.message, texts.NO_BOOKINGS, keyboards.no_bookings())
+        await show(callback, msg, texts.NO_BOOKINGS, keyboards.no_bookings())
         return
     await show(
         callback,
-        callback.message,
+        msg,
         texts.my_bookings([booking_line(shop, b) for b in bookings]),
         keyboards.my_bookings([(b.id, b.start) for b in bookings]),
     )
@@ -415,7 +419,7 @@ async def on_my(
     """М1; в любой момент сбрасывает незавершённую запись (2.9)."""
     await callback.answer()
     await reset(state, bot, callback.from_user.id)
-    await show_my_bookings(callback, shop, db)
+    await show_my_bookings(callback, callback.message, callback.from_user.id, shop, db)
 
 
 async def on_cancel_ask(
@@ -442,7 +446,7 @@ async def on_cancel_no(
     """Отказ от отмены ничего не меняет — возвращаем список записей."""
     await callback.answer()
     await reset(state, bot, callback.from_user.id)
-    await show_my_bookings(callback, shop, db)
+    await show_my_bookings(callback, callback.message, callback.from_user.id, shop, db)
 
 
 async def on_cancel_yes(
@@ -488,14 +492,37 @@ async def on_test_reminder(message: Message, db: Database) -> None:
     await message.answer(texts.TEST_REMINDER_SCHEDULED)
 
 
+# --- Постоянное меню (К10) и «Контакты» ---
+
+
+async def on_menu_book(message: Message, state: FSMContext, shop: Shop, bot: Bot) -> None:
+    await reset(state, bot, message.chat.id)
+    await show_services(None, message, state, shop)
+
+
+async def on_menu_my(
+    message: Message, state: FSMContext, shop: Shop, db: Database, bot: Bot
+) -> None:
+    await reset(state, bot, message.chat.id)
+    await show_my_bookings(None, message, message.from_user.id, shop, db)
+
+
+async def on_menu_contacts(message: Message, shop: Shop) -> None:
+    """Контакты не прерывают начатую запись."""
+    await message.answer(texts.contacts(shop))
+
+
+async def on_contacts(callback: CallbackQuery, shop: Shop, bot: Bot) -> None:
+    await callback.answer()
+    await bot.send_message(callback.from_user.id, texts.contacts(shop))
+
+
 # --- Прочее ---
 
 
-async def on_other_message(message: Message, state: FSMContext) -> None:
-    if await state.get_state() is None:
-        await message.answer(texts.UNKNOWN_MESSAGE)
-    else:
-        await message.answer(texts.USE_BUTTONS)
+async def on_other_message(message: Message) -> None:
+    """К11: текст не по командам — меню inline-кнопками."""
+    await message.answer(texts.UNKNOWN_MESSAGE, reply_markup=keyboards.greeting())
 
 
 async def on_stale(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
@@ -518,6 +545,11 @@ def build_routers() -> list[Router]:
     cb = router.callback_query.register
     router.message.register(on_start, CommandStart())
     router.message.register(on_test_reminder, Command("test_reminder"))
+    # Кнопки постоянного меню — раньше шагов записи: на шаге имени это не имя.
+    router.message.register(on_menu_book, F.text == texts.BTN_MENU_BOOK)
+    router.message.register(on_menu_my, F.text == texts.BTN_MY)
+    router.message.register(on_menu_contacts, F.text == texts.BTN_CONTACTS)
+    cb(on_contacts, F.data == keyboards.CONTACTS)
     cb(on_home, F.data == keyboards.HOME)
     cb(on_home, StateFilter(Booking.service), F.data == f"{back}:{keyboards.HOME}")
     cb(on_book, F.data == keyboards.BOOK)
