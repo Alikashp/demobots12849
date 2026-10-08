@@ -214,3 +214,18 @@ def buttons(request) -> list[tuple[str, str | None]]:
     if markup is None or not hasattr(markup, "inline_keyboard"):
         return []
     return [(b.text, b.callback_data) for row in markup.inline_keyboard for b in row]
+
+
+def is_main_menu(markup) -> bool:
+    """Постоянное меню внизу экрана (К10): им же заменяется кнопка «Поделиться номером»."""
+    from aiogram.types import ReplyKeyboardMarkup
+
+    from saqal import texts
+
+    if not isinstance(markup, ReplyKeyboardMarkup) or not markup.is_persistent:
+        return False
+    return [b.text for row in markup.keyboard for b in row] == [
+        texts.BTN_MENU_BOOK,
+        texts.BTN_MY,
+        texts.BTN_CONTACTS,
+    ]

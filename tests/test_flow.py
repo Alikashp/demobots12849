@@ -4,11 +4,11 @@ import logging
 from datetime import datetime
 
 from aiogram.methods import SendMessage
-from aiogram.types import ReplyKeyboardMarkup, ReplyKeyboardRemove
+from aiogram.types import ReplyKeyboardMarkup
 
 from saqal import texts
 from saqal.clock import TZ
-from tests.conftest import ADMIN_CHAT_ID, buttons, sent, texts_of
+from tests.conftest import ADMIN_CHAT_ID, buttons, is_main_menu, sent, texts_of
 
 ALICE = 111
 BOB = 222
@@ -17,7 +17,7 @@ PHONE = "79001234567"
 T1_IVAN = (
     "🤜🤛 Иван, вы записаны в 💈барбершоп SAQAL на услугу «Мужская стрижка» к мастеру Умар\n"
     "⌚ 9 октября (пт) в 12:00\n"
-    "📍 Куюки, Казань\n"
+    "📍 Новые Салмачи, ул. Невская, 14а\n"
     "Ждём вас!"
 )
 # Кнопки под Т1: записаться ещё раз или открыть свои записи.
@@ -47,7 +47,7 @@ async def test_new_client_full_flow_gets_t1_and_admin_gets_t4(tg):
     r = await tg.text(ALICE, "/start")
     [greeting] = sent(r)
     assert "SAQAL" in greeting.text
-    assert buttons(greeting) == [(texts.BTN_BOOK, "book"), (texts.BTN_MY, "my")]  # 2.1
+    assert is_main_menu(greeting.reply_markup)  # К10: меню внизу экрана
 
     r = await tg.press(ALICE, "book")
     [msg] = sent(r)
@@ -125,7 +125,7 @@ async def test_phone_step_accepts_only_own_contact_via_button(tg, db):
     r = await tg.contact(ALICE, PHONE, owner_id=ALICE)
     received, t1 = sent(r, ALICE)
     assert received.text == texts.PHONE_RECEIVED
-    assert isinstance(received.reply_markup, ReplyKeyboardRemove)  # клавиатура убрана
+    assert is_main_menu(received.reply_markup)  # вместо кнопки номера — меню
     assert t1.text == T1_IVAN
     assert buttons(t1) == AFTER_BOOKING
     assert db.get_client(ALICE).phone == "+79001234567"
@@ -167,7 +167,7 @@ async def test_slot_taken_while_new_client_enters_phone(tg, db):
     r = await tg.contact(ALICE, PHONE, owner_id=ALICE)
     msgs = sent(r, ALICE)
     assert [m.text for m in msgs] == [texts.SLOT_TAKEN, "⌚ Свободное время на 9 октября (пт):"]
-    assert isinstance(msgs[0].reply_markup, ReplyKeyboardRemove)
+    assert is_main_menu(msgs[0].reply_markup)
     assert ("15:00", "tm:202610091500") not in buttons(msgs[1])
     assert texts_of(r, ADMIN_CHAT_ID) == []
     assert db.get_client(ALICE) is None
@@ -228,10 +228,9 @@ async def test_start_on_phone_step_removes_reply_keyboard(tg):
     await tg.press(ALICE, "tm:202610091200")
     await tg.text(ALICE, "Иван")
     r = await tg.text(ALICE, "/start")
-    msgs = sent(r)
-    assert msgs[0].text == texts.RESTART
-    assert isinstance(msgs[0].reply_markup, ReplyKeyboardRemove)
-    assert msgs[1].text == texts.greeting(tg.dp["shop"])
+    [msg] = sent(r)  # приветствие само ставит меню вместо кнопки номера
+    assert msg.text == texts.greeting(tg.dp["shop"])
+    assert is_main_menu(msg.reply_markup)
 
 
 async def test_stale_and_forged_buttons_get_clear_answer(tg):

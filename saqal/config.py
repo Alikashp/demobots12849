@@ -24,6 +24,12 @@ class Master:
 
 
 @dataclass(frozen=True)
+class Contact:
+    name: str
+    phone: str
+
+
+@dataclass(frozen=True)
 class Shop:
     name: str
     kind: str
@@ -34,6 +40,7 @@ class Shop:
     days_ahead: int
     masters: tuple[Master, ...]
     services: tuple[Service, ...]
+    contacts: tuple[Contact, ...] = ()
 
     def service(self, service_id: str) -> Service | None:
         return next((s for s in self.services if s.id == service_id), None)
@@ -58,6 +65,7 @@ def load_shop(path: Path = SHOP_FILE) -> Shop:
             Service(id=s["id"], title=s["title"], minutes=int(s["minutes"]), price=s["price"])
             for s in raw["services"]
         ),
+        contacts=tuple(Contact(name=c["name"], phone=c["phone"]) for c in raw.get("contacts", [])),
     )
 
 

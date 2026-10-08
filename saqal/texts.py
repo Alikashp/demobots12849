@@ -30,6 +30,8 @@ BTN_HOME = "🏠 В начало"
 BTN_ANY_MASTER = "💈 Любой мастер"
 BTN_SHARE_PHONE = "📱 Поделиться номером"
 BTN_MY = "📋 Мои записи"
+BTN_MENU_BOOK = "✂️ Записаться на услугу"
+BTN_CONTACTS = "📞 Контакты"
 BTN_CANCEL_YES = "✅ Да, отменить"
 BTN_CANCEL_NO = "↩️ Нет, оставить"
 BTN_CANCEL_BOOKING = "❌ Отменить запись"
@@ -95,10 +97,15 @@ PHONE_RECEIVED = "📱 Номер получен, спасибо!"
 PHONE_USE_BUTTON = f"Номер набирать не нужно 🙂 Просто нажмите кнопку «{BTN_SHARE_PHONE}» внизу."
 SLOT_TAKEN = "😔 Это время только что заняли. Выберите, пожалуйста, другое."
 STALE_BUTTON = f"🙈 Эта кнопка устарела. Давайте начнём заново — нажмите «{BTN_HOME}»."
-UNKNOWN_MESSAGE = "Чтобы записаться, нажмите /start 💈"
-USE_BUTTONS = (
-    "👆 Выберите вариант кнопкой в сообщении выше или нажмите /start, чтобы начать заново."
-)
+UNKNOWN_MESSAGE = "Выберите, что вас интересует 👇"
+
+
+def contacts(shop: Shop) -> str:
+    lines = [f"📍 Адрес: {shop.address}"]
+    lines += [f"📞 {c.name}, {c.phone}" for c in shop.contacts]
+    return "\n".join(lines)
+
+
 RESTART = "Хорошо, начнём заново 👌"
 
 
