@@ -7,6 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 
 from .admin import build_admin_router
+from .adminka import build_adminka_router
 from .config import Settings, Shop, load_shop
 from .db import Database
 from .handlers import build_routers
@@ -27,7 +28,8 @@ def build_dispatcher(shop: Shop, db: Database, settings: Settings) -> Dispatcher
         settings=settings,
     )
     # Команды владельца — первыми: в личном чате владельца остальное уходит в сценарий клиента.
-    dp.include_routers(build_admin_router(), *build_routers())
+    # Админка — до сценария клиента: на шаге имени «⚙️ Админка» не должна стать именем.
+    dp.include_routers(build_admin_router(), build_adminka_router(), *build_routers())
     dp.startup.register(check_admin_chat_on_start)
     dp.startup.register(start_reminders)
     dp.shutdown.register(stop_reminders)
@@ -65,6 +67,11 @@ async def run() -> None:
         log.error("Бот не запущен: %s", e)
         raise SystemExit(1) from None
     ensure_db_dir(settings.db_path)  # 5.3
+    if not settings.admin_ids:
+        log.warning(
+            "ADMIN_IDS не задан: админка выключена. Чтобы включить, задайте Telegram ID "
+            "администраторов через запятую и перезапустите бота."
+        )
     dp = build_dispatcher(load_shop(), Database(settings.db_path), settings)
     bot = Bot(settings.bot_token)
     await bot.delete_webhook(drop_pending_updates=False)

@@ -122,10 +122,14 @@ class FakeSession(BaseSession):
 class Harness:
     """Клиент Telegram для тестов: шлёт апдейты в диспетчер и читает ответы бота."""
 
-    def __init__(self, shop, db, admin_chat_id: int = ADMIN_CHAT_ID) -> None:
+    def __init__(
+        self, shop, db, admin_chat_id: int = ADMIN_CHAT_ID, admin_ids: frozenset[int] = frozenset()
+    ) -> None:
         self.session = FakeSession()
         self.bot = Bot("42:TEST", session=self.session)
-        self.settings = Settings(bot_token="42:TEST", admin_chat_id=admin_chat_id, db_path=db.path)
+        self.settings = Settings(
+            bot_token="42:TEST", admin_chat_id=admin_chat_id, db_path=db.path, admin_ids=admin_ids
+        )
         self.dp = build_dispatcher(shop, db, self.settings)
         self._update_ids = count(1)
         self._msg_ids = count(1)
