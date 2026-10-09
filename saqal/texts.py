@@ -32,6 +32,7 @@ BTN_SHARE_PHONE = "📱 Поделиться номером"
 BTN_MY = "📋 Мои записи"
 BTN_MENU_BOOK = "✂️ Записаться на услугу"
 BTN_CONTACTS = "📞 Контакты"
+BTN_ADMIN = "⚙️ Админка"
 BTN_CANCEL_YES = "✅ Да, отменить"
 BTN_CANCEL_NO = "↩️ Нет, оставить"
 BTN_CANCEL_BOOKING = "❌ Отменить запись"
@@ -228,3 +229,64 @@ def reminder(kind: str, name: str, service_title: str, master_name: str, start: 
         f"на «{service_title}». Если планы изменились, отмените запись кнопкой ниже, "
         "чтобы освободить время для других."
     )
+
+
+def booking_cancelled_by_shop(
+    shop: Shop, name: str, service_title: str, master_name: str, start: datetime
+) -> str:
+    """Т6."""
+    return (
+        f"😔 {name}, ваша запись в 💈{shop.kind} {shop.name} отменена: «{service_title}», "
+        f"мастер {master_name}, {fmt_date(start.astimezone(TZ).date())} в {fmt_time(start)}. "
+        "Чтобы выбрать другое время, нажмите /start."
+    )
+
+
+# --- Админка (§12) ---
+
+ADMIN_MENU = "⚙️ Админка. Что открыть?"
+BTN_ADMIN_BOOKINGS = "📋 Записи"
+BTN_ADMIN_TO_DAYS = "⬅️ К выбору дня"
+BTN_ADMIN_CANCEL_YES = "✅ Да, отменить"
+BTN_ADMIN_CANCEL_NO = "↩️ Нет, назад"
+ADMIN_CHOOSE_DAY = "📋 Записи. Выберите день:"
+ADMIN_CANCEL_NOT_FOUND = "Запись не найдена."
+ADMIN_CANCEL_ALREADY = "Эта запись уже отменена, уведомления повторно не отправлялись."
+ADMIN_CANCEL_STARTED = "Эта запись уже началась или прошла — отменить её нельзя."
+ADMIN_CLIENT_NOTIFIED = "Клиент получил уведомление об отмене."
+ADMIN_CLIENT_NOT_NOTIFIED = (
+    "⚠️ Клиент не уведомлён: сообщение не доставлено (возможно, он заблокировал бота). "
+    "Позвоните ему: {phone}."
+)
+
+
+def admin_day_header(d: date) -> str:
+    return f"📋 Записи на {fmt_date(d)}"
+
+
+def admin_booking_line(
+    start: datetime, service_title: str, name: str, phone: str, manual: bool = False
+) -> str:
+    """АЗ1: ручные записи (Ф8) помечаются «📞»."""
+    mark = "📞 " if manual else ""
+    return f"{mark}{fmt_time(start)} — {service_title} — {name}, {phone}"
+
+
+def btn_admin_cancel(start: datetime, master_name: str, name: str) -> str:
+    return f"❌ {fmt_time(start)} {master_name} — {name}"
+
+
+def admin_booking_card(
+    service_title: str, master_name: str, start: datetime, name: str, phone: str
+) -> str:
+    when = f"{fmt_date(start.astimezone(TZ).date())} в {fmt_time(start)}"
+    return f"📅 {when} — «{service_title}», мастер {master_name}\n👤 {name}, {phone}"
+
+
+def admin_confirm_cancel(card: str) -> str:
+    return f"Отменить запись? Клиент получит уведомление.\n\n{card}"
+
+
+def admin_cancel_done(card: str, notified: bool, phone: str) -> str:
+    tail = ADMIN_CLIENT_NOTIFIED if notified else ADMIN_CLIENT_NOT_NOTIFIED.format(phone=phone)
+    return f"Запись отменена ✅\n\n{card}\n\n{tail}"

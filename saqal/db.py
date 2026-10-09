@@ -263,11 +263,13 @@ class Database:
         return _check(booking, now), booking
 
     def cancel_booking(
-        self, booking_id: int, user_id: int, now: datetime
+        self, booking_id: int, user_id: int | None, now: datetime
     ) -> tuple[CancelCheck, Booking | None]:
-        """М2–М4: проверка и отмена в одной транзакции с блокировкой на запись.
+        """М2–М4, АЗ2: проверка и отмена в одной транзакции с блокировкой на запись.
 
-        Отменяет только при CancelCheck.OK; повторный вызов вернёт ALREADY_CANCELLED.
+        user_id — владелец записи; None — отменяет администратор (любую запись).
+        Отменяет только при CancelCheck.OK; повторный или параллельный вызов, в том числе
+        клиентом и администратором одновременно, вернёт ALREADY_CANCELLED.
         """
         conn = self._connect()
         try:
@@ -288,8 +290,18 @@ class Database:
         finally:
             conn.close()
 
+    def booking(self, booking_id: int) -> Booking | None:
+        """Запись по номеру — только для админки (АЗ2)."""
+        with self._session() as conn:
+            return self._user_booking(conn, booking_id, None)
+
     @staticmethod
-    def _user_booking(conn: sqlite3.Connection, booking_id: int, user_id: int) -> Booking | None:
+    def _user_booking(
+        conn: sqlite3.Connection, booking_id: int, user_id: int | None
+    ) -> Booking | None:
+        if user_id is None:
+            row = conn.execute(f"{BOOKING_SELECT} WHERE b.id = ?", (booking_id,)).fetchone()
+            return _booking(row) if row else None
         row = conn.execute(
             f"{BOOKING_SELECT} WHERE b.id = ? AND b.user_id = ?", (booking_id, user_id)
         ).fetchone()

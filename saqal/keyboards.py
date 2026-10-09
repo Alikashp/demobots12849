@@ -42,13 +42,16 @@ def _back(target: str) -> list[InlineKeyboardButton]:
     return [_btn(texts.BTN_BACK, f"{BACK}:{target}")]
 
 
-def main_menu() -> ReplyKeyboardMarkup:
+def main_menu(admin: bool = False) -> ReplyKeyboardMarkup:
     """Постоянное меню внизу экрана (П6). Нажатия приходят обычным текстом."""
+    rows = [
+        [KeyboardButton(text=texts.BTN_MENU_BOOK)],
+        [KeyboardButton(text=texts.BTN_MY), KeyboardButton(text=texts.BTN_CONTACTS)],
+    ]
+    if admin:  # АА2: четвёртая кнопка только у администраторов
+        rows.append([KeyboardButton(text=texts.BTN_ADMIN)])
     return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=texts.BTN_MENU_BOOK)],
-            [KeyboardButton(text=texts.BTN_MY), KeyboardButton(text=texts.BTN_CONTACTS)],
-        ],
+        keyboard=rows,
         resize_keyboard=True,
         is_persistent=True,
     )

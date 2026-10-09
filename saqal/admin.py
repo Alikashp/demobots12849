@@ -21,12 +21,18 @@ MESSAGE_LIMIT = 4096
 
 
 def in_admin_chat(event: TelegramObject, settings: Settings) -> bool:
-    """В2, 4.8: только чат ADMIN_CHAT_ID — группа или личный чат владельца."""
+    """В2, АА3: чат ADMIN_CHAT_ID (группа или личный чат владельца) или личный чат
+    администратора из ADMIN_IDS. Роль проверяется на каждом апдейте (А13)."""
     if isinstance(event, CallbackQuery):
         chat = event.message.chat if event.message else None
     else:
         chat = event.chat
-    return chat is not None and chat.id == settings.admin_chat_id
+    if chat is None:
+        return False
+    if chat.id == settings.admin_chat_id:
+        return True
+    user = event.from_user
+    return chat.type == "private" and user is not None and settings.is_admin(user.id)
 
 
 # --- /today (В4) ---

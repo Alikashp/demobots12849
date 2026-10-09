@@ -59,18 +59,25 @@ def chosen_master_ids(shop: Shop, data: dict) -> list[str] | None:
     return None
 
 
-async def stale(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
+async def stale(callback: CallbackQuery, bot: Bot, state: FSMContext, settings: Settings) -> None:
     """К9: устаревшая кнопка — понятный ответ и выход в начало (с шага К6 — без клавиатуры)."""
     await callback.answer()
-    await reset(state, bot, callback.from_user.id)
+    await reset(state, bot, callback.from_user.id, settings)
     await bot.send_message(callback.from_user.id, texts.STALE_BUTTON, reply_markup=keyboards.home())
 
 
-async def reset(state: FSMContext, bot: Bot, chat_id: int, *, restore_menu: bool = True) -> None:
+def menu(user_id: int, settings: Settings):
+    """Постоянное меню; у администратора — с кнопкой «⚙️ Админка» (АА2)."""
+    return keyboards.main_menu(admin=settings.is_admin(user_id))
+
+
+async def reset(
+    state: FSMContext, bot: Bot, chat_id: int, settings: Settings, *, restore_menu: bool = True
+) -> None:
     """Сбросить незавершённую запись (К1)."""
     if restore_menu and await state.get_state() == Booking.phone.state:
         # Запись бросили на шаге К6 — вместо кнопки «Поделиться номером» снова меню.
-        await bot.send_message(chat_id, texts.RESTART, reply_markup=keyboards.main_menu())
+        await bot.send_message(chat_id, texts.RESTART, reply_markup=menu(chat_id, settings))
     await state.clear()
 
 
@@ -136,7 +143,7 @@ async def finish_booking(
     start = datetime.fromisoformat(data["start"])
     new_client = (data["name"], data["phone"]) if "phone" in data else None
     # После шага К6 вместо кнопки «Поделиться номером» возвращаем постоянное меню.
-    kb_remove = keyboards.main_menu() if remove_reply_keyboard else None
+    kb_remove = menu(user_id, settings) if remove_reply_keyboard else None
 
     booking = db.create_booking(
         shop=shop,
@@ -177,25 +184,31 @@ async def finish_booking(
 # --- К1: старт и выход в начало ---
 
 
-async def on_start(message: Message, state: FSMContext, shop: Shop, db: Database, bot: Bot) -> None:
+async def on_start(
+    message: Message, state: FSMContext, shop: Shop, db: Database, bot: Bot, settings: Settings
+) -> None:
     db.remember_user(message.from_user.id, clock.now())  # В3: получатель рассылки
-    await reset(state, bot, message.chat.id, restore_menu=False)
+    await reset(state, bot, message.chat.id, settings, restore_menu=False)
     # Приветствие ставит постоянное меню внизу экрана (К10), в том числе вместо кнопки номера.
-    await message.answer(texts.greeting(shop), reply_markup=keyboards.main_menu())
+    await message.answer(texts.greeting(shop), reply_markup=menu(message.from_user.id, settings))
 
 
-async def on_home(callback: CallbackQuery, state: FSMContext, shop: Shop, bot: Bot) -> None:
+async def on_home(
+    callback: CallbackQuery, state: FSMContext, shop: Shop, bot: Bot, settings: Settings
+) -> None:
     await callback.answer()
-    await reset(state, bot, callback.from_user.id)
+    await reset(state, bot, callback.from_user.id, settings)
     await show(callback, callback.message, texts.greeting(shop), keyboards.greeting())
 
 
 # --- К2: услуга ---
 
 
-async def on_book(callback: CallbackQuery, state: FSMContext, shop: Shop, bot: Bot) -> None:
+async def on_book(
+    callback: CallbackQuery, state: FSMContext, shop: Shop, bot: Bot, settings: Settings
+) -> None:
     await callback.answer()
-    await reset(state, bot, callback.from_user.id)
+    await reset(state, bot, callback.from_user.id, settings)
     await show_services(callback, callback.message, state, shop)
 
 
@@ -204,10 +217,12 @@ async def on_back_to_service(callback: CallbackQuery, state: FSMContext, shop: S
     await show_services(callback, callback.message, state, shop)
 
 
-async def on_service(callback: CallbackQuery, state: FSMContext, shop: Shop, bot: Bot) -> None:
+async def on_service(
+    callback: CallbackQuery, state: FSMContext, shop: Shop, bot: Bot, settings: Settings
+) -> None:
     service = shop.service(callback.data.split(":", 1)[1])
     if service is None:
-        await stale(callback, bot, state)
+        await stale(callback, bot, state, settings)
         return
     await callback.answer()
     await state.update_data(service_id=service.id)
@@ -217,23 +232,30 @@ async def on_service(callback: CallbackQuery, state: FSMContext, shop: Shop, bot
 # --- К3: мастер ---
 
 
-async def on_back_to_master(callback: CallbackQuery, state: FSMContext, shop: Shop, bot: Bot):
+async def on_back_to_master(
+    callback: CallbackQuery, state: FSMContext, shop: Shop, bot: Bot, settings: Settings
+):
     service = chosen_service(shop, await state.get_data())
     if service is None:
-        await stale(callback, bot, state)
+        await stale(callback, bot, state, settings)
         return
     await callback.answer()
     await show_masters(callback, callback.message, state, shop, service)
 
 
 async def on_master(
-    callback: CallbackQuery, state: FSMContext, shop: Shop, db: Database, bot: Bot
+    callback: CallbackQuery,
+    state: FSMContext,
+    shop: Shop,
+    db: Database,
+    bot: Bot,
+    settings: Settings,
 ) -> None:
     master = callback.data.split(":", 1)[1]
     if (master != keyboards.ANY_MASTER and shop.master(master) is None) or chosen_service(
         shop, await state.get_data()
     ) is None:
-        await stale(callback, bot, state)
+        await stale(callback, bot, state, settings)
         return
     await callback.answer()
     await state.update_data(master=master)
@@ -249,11 +271,16 @@ async def on_back_to_day(callback: CallbackQuery, state: FSMContext, shop: Shop,
 
 
 async def on_day(
-    callback: CallbackQuery, state: FSMContext, shop: Shop, db: Database, bot: Bot
+    callback: CallbackQuery,
+    state: FSMContext,
+    shop: Shop,
+    db: Database,
+    bot: Bot,
+    settings: Settings,
 ) -> None:
     day = keyboards.parse_day(callback.data.split(":", 1)[1])
     if day is None or day not in slots.booking_days(shop, clock.now()):
-        await stale(callback, bot, state)
+        await stale(callback, bot, state, settings)
         return
     await callback.answer()
     await state.update_data(day=day.isoformat())
@@ -280,7 +307,7 @@ async def on_time(
         or master_ids is None
         or start.date().isoformat() != data.get("day")
     ):
-        await stale(callback, bot, state)
+        await stale(callback, bot, state, settings)
         return
     await callback.answer()
     msg = callback.message
@@ -351,7 +378,7 @@ async def on_phone_other(message: Message) -> None:
 
 
 async def on_time_repeat(
-    callback: CallbackQuery, state: FSMContext, db: Database, bot: Bot
+    callback: CallbackQuery, state: FSMContext, db: Database, bot: Bot, settings: Settings
 ) -> None:
     """Кнопка времени вне шага К5: повторное нажатие или устаревшая кнопка (2.10)."""
     start = keyboards.parse_time(callback.data.split(":", 1)[1])
@@ -368,7 +395,7 @@ async def on_time_repeat(
         # Клиент уже записан на это время этим же нажатием.
         await callback.answer(texts.ALREADY_BOOKED)
         return
-    await stale(callback, bot, state)
+    await stale(callback, bot, state, settings)
 
 
 # --- Мои записи и отмена (М1–М4). Не зависят от состояния в памяти (2.8) ---
@@ -414,20 +441,30 @@ async def show_my_bookings(
 
 
 async def on_my(
-    callback: CallbackQuery, state: FSMContext, shop: Shop, db: Database, bot: Bot
+    callback: CallbackQuery,
+    state: FSMContext,
+    shop: Shop,
+    db: Database,
+    bot: Bot,
+    settings: Settings,
 ) -> None:
     """М1; в любой момент сбрасывает незавершённую запись (2.9)."""
     await callback.answer()
-    await reset(state, bot, callback.from_user.id)
+    await reset(state, bot, callback.from_user.id, settings)
     await show_my_bookings(callback, callback.message, callback.from_user.id, shop, db)
 
 
 async def on_cancel_ask(
-    callback: CallbackQuery, state: FSMContext, shop: Shop, db: Database, bot: Bot
+    callback: CallbackQuery,
+    state: FSMContext,
+    shop: Shop,
+    db: Database,
+    bot: Bot,
+    settings: Settings,
 ) -> None:
     """М2: одно подтверждение с данными записи."""
     await callback.answer()
-    await reset(state, bot, callback.from_user.id)
+    await reset(state, bot, callback.from_user.id, settings)
     result, booking = db.check_cancel(callback_id(callback), callback.from_user.id, clock.now())
     if result is not CancelCheck.OK:
         await show(callback, callback.message, CANCEL_PROBLEMS[result], keyboards.cancel_problem())
@@ -441,11 +478,16 @@ async def on_cancel_ask(
 
 
 async def on_cancel_no(
-    callback: CallbackQuery, state: FSMContext, shop: Shop, db: Database, bot: Bot
+    callback: CallbackQuery,
+    state: FSMContext,
+    shop: Shop,
+    db: Database,
+    bot: Bot,
+    settings: Settings,
 ) -> None:
     """Отказ от отмены ничего не меняет — возвращаем список записей."""
     await callback.answer()
-    await reset(state, bot, callback.from_user.id)
+    await reset(state, bot, callback.from_user.id, settings)
     await show_my_bookings(callback, callback.message, callback.from_user.id, shop, db)
 
 
@@ -459,7 +501,7 @@ async def on_cancel_yes(
 ) -> None:
     """М2–М4: отмена; повтор и опоздание — понятный ответ без Т5."""
     await callback.answer()
-    await reset(state, bot, callback.from_user.id)
+    await reset(state, bot, callback.from_user.id, settings)
     result, booking = db.cancel_booking(callback_id(callback), callback.from_user.id, clock.now())
     if result is not CancelCheck.OK:
         await show(callback, callback.message, CANCEL_PROBLEMS[result], keyboards.cancel_problem())
@@ -495,15 +537,17 @@ async def on_test_reminder(message: Message, db: Database) -> None:
 # --- Постоянное меню (К10) и «Контакты» ---
 
 
-async def on_menu_book(message: Message, state: FSMContext, shop: Shop, bot: Bot) -> None:
-    await reset(state, bot, message.chat.id)
+async def on_menu_book(
+    message: Message, state: FSMContext, shop: Shop, bot: Bot, settings: Settings
+) -> None:
+    await reset(state, bot, message.chat.id, settings)
     await show_services(None, message, state, shop)
 
 
 async def on_menu_my(
-    message: Message, state: FSMContext, shop: Shop, db: Database, bot: Bot
+    message: Message, state: FSMContext, shop: Shop, db: Database, bot: Bot, settings: Settings
 ) -> None:
-    await reset(state, bot, message.chat.id)
+    await reset(state, bot, message.chat.id, settings)
     await show_my_bookings(None, message, message.from_user.id, shop, db)
 
 
@@ -525,8 +569,10 @@ async def on_other_message(message: Message) -> None:
     await message.answer(texts.UNKNOWN_MESSAGE, reply_markup=keyboards.greeting())
 
 
-async def on_stale(callback: CallbackQuery, bot: Bot, state: FSMContext) -> None:
-    await stale(callback, bot, state)
+async def on_stale(
+    callback: CallbackQuery, bot: Bot, state: FSMContext, settings: Settings
+) -> None:
+    await stale(callback, bot, state, settings)
 
 
 # --- Маршрутизация ---
