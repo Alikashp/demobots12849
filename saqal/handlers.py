@@ -99,7 +99,9 @@ async def show_days(
     data = await state.get_data()
     service, master_ids = chosen_service(shop, data), chosen_master_ids(shop, data)
     now = clock.now()
-    days = slots.available_days(shop, service, master_ids, db.busy_for_window(shop, now), now)
+    days = slots.available_days(
+        shop, service, master_ids, db.busy_for_window(shop, now), now, db.schedule()
+    )
     await state.set_state(Booking.day)
     if not days:
         await show(cb, msg, texts.NO_DAYS, keyboards.days([]))
@@ -115,7 +117,13 @@ async def show_times(
     day = date.fromisoformat(data["day"])
     now = clock.now()
     starts = slots.available_starts(
-        shop, service, master_ids, day, db.busy_between(*slots.local_day_bounds(day)), now
+        shop,
+        service,
+        master_ids,
+        day,
+        db.busy_between(*slots.local_day_bounds(day)),
+        now,
+        db.schedule(),
     )
     if not starts:
         # День успел заполниться — возвращаем к выбору дня.
@@ -318,7 +326,7 @@ async def on_time(
     now = clock.now()
     day_start, _ = slots.local_day_bounds(start.date())
     busy = db.busy_between(day_start, day_start + timedelta(days=1))
-    if not slots.is_start_available(shop, service, master_ids, start, busy, now):
+    if not slots.is_start_available(shop, service, master_ids, start, busy, now, db.schedule()):
         await msg.answer(texts.SLOT_TAKEN)
         await show_times(None, msg, state, shop, db)
         return

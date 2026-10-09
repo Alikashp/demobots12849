@@ -4,7 +4,7 @@ import sqlite3
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
 
 from . import slots
@@ -41,6 +41,18 @@ CREATE INDEX IF NOT EXISTS reminders_pending_due ON reminders (status, due_at);
 CREATE TABLE IF NOT EXISTS users (                -- все, кто нажимал /start (В3)
     user_id        INTEGER PRIMARY KEY,
     first_start_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS master_hours (      -- АР1: недельный шаблон, минуты от полуночи
+    master_id TEXT    NOT NULL,
+    weekday   INTEGER NOT NULL,                  -- 0 = понедельник
+    start_min INTEGER,                           -- NULL = выходной
+    end_min   INTEGER,
+    PRIMARY KEY (master_id, weekday)
+);
+CREATE TABLE IF NOT EXISTS master_days_off (    -- АР2: выходные на даты
+    master_id TEXT NOT NULL,
+    day       TEXT NOT NULL,                     -- ISO-дата по Казани
+    PRIMARY KEY (master_id, day)
 );
 CREATE TABLE IF NOT EXISTS broadcasts (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -190,10 +202,11 @@ class Database:
         try:
             conn.execute("BEGIN IMMEDIATE")
             busy = self._busy(conn, day_start, day_end)
-            if not slots.is_start_available(shop, service, master_ids, start, busy, now):
+            schedule = self._schedule(conn)  # А15: график — в той же транзакции
+            if not slots.is_start_available(shop, service, master_ids, start, busy, now, schedule):
                 conn.execute("ROLLBACK")
                 return None
-            master_id = slots.pick_master(service, start, master_ids, busy)
+            master_id = slots.pick_master(service, start, master_ids, busy, schedule)
             assert master_id is not None  # гарантировано is_start_available
 
             row = conn.execute(
@@ -427,3 +440,87 @@ class Database:
                 " WHERE id = ?",
                 (delivered, total, _ts(now), broadcast_id),
             )
+
+    # --- График мастеров (АР1–АР5, А15) ---
+
+    @staticmethod
+    def _schedule(conn: sqlite3.Connection) -> slots.Schedule:
+        weekly: dict[str, dict[int, slots.Hours | None]] = {}
+        for master_id, weekday, start_min, end_min in conn.execute(
+            "SELECT master_id, weekday, start_min, end_min FROM master_hours"
+        ):
+            hours = None if start_min is None else (_min_time(start_min), _min_time(end_min))
+            weekly.setdefault(master_id, {})[weekday] = hours
+        days_off = frozenset(
+            (master_id, date.fromisoformat(day))
+            for master_id, day in conn.execute("SELECT master_id, day FROM master_days_off")
+        )
+        return slots.Schedule(weekly=weekly, days_off=days_off)
+
+    def schedule(self) -> slots.Schedule:
+        with self._session() as conn:
+            return self._schedule(conn)
+
+    def set_weekday_hours(
+        self, shop: Shop, master_id: str, weekday: int, hours: slots.Hours | None
+    ) -> None:
+        """Изменить один день недели. Остальные дни шаблона заполняются режимом (Д6)."""
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            for wd in range(7):
+                conn.execute(
+                    "INSERT OR IGNORE INTO master_hours (master_id, weekday, start_min, end_min)"
+                    " VALUES (?, ?, ?, ?)",
+                    (master_id, wd, _time_min(shop.open), _time_min(shop.close)),
+                )
+            start_min, end_min = (None, None) if hours is None else map(_time_min, hours)
+            conn.execute(
+                "UPDATE master_hours SET start_min = ?, end_min = ?"
+                " WHERE master_id = ? AND weekday = ?",
+                (start_min, end_min, master_id, weekday),
+            )
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.close()
+
+    def toggle_day_off(self, master_id: str, day: date) -> bool:
+        """АР2: поставить или снять выходной на дату. True — теперь выходной."""
+        with self._session() as conn:
+            cur = conn.execute(
+                "DELETE FROM master_days_off WHERE master_id = ? AND day = ?",
+                (master_id, day.isoformat()),
+            )
+            if cur.rowcount:
+                return False
+            conn.execute(
+                "INSERT INTO master_days_off (master_id, day) VALUES (?, ?)",
+                (master_id, day.isoformat()),
+            )
+            return True
+
+    def future_master_bookings(
+        self, master_id: str, now: datetime
+    ) -> list[tuple[Booking, slots.Busy]]:
+        """АР4: будущие активные записи мастера вместе с их интервалами."""
+        with self._session() as conn:
+            rows = conn.execute(
+                "SELECT b.id, b.user_id, c.name, c.phone, b.master_id, b.service_id, b.start_at,"
+                " b.status, b.end_at FROM bookings b JOIN clients c ON c.user_id = b.user_id"
+                " WHERE b.master_id = ? AND b.status = 'active' AND b.start_at > ?"
+                " ORDER BY b.start_at, b.id",
+                (master_id, _ts(now)),
+            ).fetchall()
+        return [(_booking(row[:-1]), slots.Busy(row[4], _dt(row[6]), _dt(row[-1]))) for row in rows]
+
+
+def _time_min(t: time) -> int:
+    return t.hour * 60 + t.minute
+
+
+def _min_time(minutes: int) -> time:
+    return time(minutes // 60, minutes % 60)

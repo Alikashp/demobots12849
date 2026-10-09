@@ -290,3 +290,87 @@ def admin_confirm_cancel(card: str) -> str:
 def admin_cancel_done(card: str, notified: bool, phone: str) -> str:
     tail = ADMIN_CLIENT_NOTIFIED if notified else ADMIN_CLIENT_NOT_NOTIFIED.format(phone=phone)
     return f"Запись отменена ✅\n\n{card}\n\n{tail}"
+
+
+# --- Расписание мастеров (АР1–АР4) ---
+
+BTN_ADMIN_SCHEDULE = "🗓 Расписание"
+BTN_SCHEDULE_DAYS_OFF = "📅 Выходные на даты"
+BTN_TO_MASTERS = "⬅️ К мастерам"
+BTN_TO_SCHEDULE = "⬅️ К графику"
+BTN_MAKE_DAY_OFF = "Сделать выходным"
+BTN_MAKE_WORKDAY = "Сделать рабочим"
+ADMIN_SCHEDULE_MASTERS = "🗓 Расписание. Выберите мастера:"
+SCHEDULE_SAVED = "Сохранено ✅"
+WEEKDAYS_FULL = (
+    "понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье",
+)  # fmt: skip
+DAY_OFF = "выходной"
+
+
+def fmt_hours(hours) -> str:
+    """(начало, конец) → «10:00–21:00»; None → «выходной»."""
+    if hours is None:
+        return DAY_OFF
+    return f"{hours[0].strftime('%H:%M')}–{hours[1].strftime('%H:%M')}"
+
+
+def schedule_line(weekday: int, hours) -> str:
+    return f"{WEEKDAYS[weekday].capitalize()} — {fmt_hours(hours)}"
+
+
+def schedule_view(master_name: str, week: list, days_off: list[date]) -> str:
+    """АР1, АР2: семь дней недели и выходные на даты."""
+    lines = [schedule_line(wd, h) for wd, h in enumerate(week)]
+    off = ", ".join(fmt_date(d) for d in days_off) if days_off else "нет"
+    return f"🗓 График: {master_name}\n\n" + "\n".join(lines) + f"\n\nВыходные на даты: {off}"
+
+
+def weekday_view(master_name: str, weekday: int, hours) -> str:
+    return f"🗓 {master_name}, {WEEKDAYS_FULL[weekday]}: {fmt_hours(hours)}"
+
+
+def btn_start(t) -> str:
+    return f"Начало: {t.strftime('%H:%M')}"
+
+
+def btn_end(t) -> str:
+    return f"Конец: {t.strftime('%H:%M')}"
+
+
+def choose_start(weekday: int) -> str:
+    return f"Выберите начало рабочего дня — {WEEKDAYS_FULL[weekday]}:"
+
+
+def choose_end(weekday: int) -> str:
+    return f"Выберите конец рабочего дня — {WEEKDAYS_FULL[weekday]}:"
+
+
+def days_off_view(master_name: str) -> str:
+    return (
+        f"📅 Выходные: {master_name}, ближайшие 7 дней.\n"
+        "Нажмите на дату, чтобы поставить или снять выходной."
+    )
+
+
+def btn_day_off(d: date, off: bool) -> str:
+    return f"🚫 {fmt_date(d)} — выходной" if off else f"{fmt_date(d)} — работает"
+
+
+def schedule_conflicts(lines: list[str]) -> str:
+    """АР4: записи вне нового графика — не отменены, решает администратор."""
+    return (
+        "⚠️ Эти записи оказались вне нового графика. Они не отменены, напоминания по ним "
+        "придут. Отменить можно кнопками ниже.\n\n" + "\n".join(lines)
+    )
+
+
+def conflict_line(start: datetime, service_title: str, name: str, phone: str) -> str:
+    return (
+        f"{fmt_date(start.astimezone(TZ).date())} {fmt_time(start)} — {service_title} — "
+        f"{name}, {phone}"
+    )
+
+
+def btn_conflict_cancel(start: datetime, name: str) -> str:
+    return f"❌ {fmt_date(start.astimezone(TZ).date())} {fmt_time(start)} — {name}"
